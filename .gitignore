@@ -1,0 +1,35 @@
+# Zależności
+node_modules/
+**/node_modules/
+
+# Build
+frontend/dist/
+*.log
+npm-debug.log*
+
+# Sekrety i env (NIGDY nie commituj kluczy API)
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env.local
+
+# Uploady użytkowników — lokalnie tylko
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Wygenerowane lokalnie (npm run generate-test-data)
+backend/dane_testowe.xlsx
+
+# Instalatory — nie do repo
+*.msi
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sw?
+
+# Artefakty / cache
+frontend/node_modules/.cache/

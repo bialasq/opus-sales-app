@@ -1,0 +1,36 @@
+{
+  "name": "business-analytics-backend",
+  "version": "1.0.0",
+  "description": "Backend dla aplikacji analizy biznesowej",
+  "main": "server.ts",
+  "scripts": {
+    "start": "tsx server.ts",
+    "dev": "nodemon --exec tsx server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck",
+    "generate-test-data": "node utils/generateTestData.js"
+  },
+  "dependencies": {
+    "axios": "^1.16.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.2",
+    "node-schedule": "^2.1.1",
+    "nodemailer": "^6.9.7",
+    "openai": "^4.20.0",
+    "pdfkit": "^0.13.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.14.0",
+    "nodemon": "^3.0.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply m-0 bg-slate-50 text-slate-900 antialiased;
+  }
+}
+
+@layer components {
+  .sales-table-wrap {
+    @apply -mx-1 overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-card sm:mx-0;
+  }
+
+  .sales-table-wrap .el-table {
+    @apply text-sm sm:text-[0.9375rem];
+  }
+
+  .sales-table-wrap .el-table th.el-table__cell {
+    @apply bg-slate-100/90 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 sm:text-[0.8125rem];
+  }
+
+  .sales-table-wrap .el-table td.el-table__cell {
+    @apply py-3.5 align-middle text-slate-800;
+  }
+
+  .sales-table-wrap .el-table .cell {
+    @apply leading-snug;
+  }
+
+  .sales-table-wrap .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+    @apply bg-slate-50/80;
+  }
+
+  .dashboard-card {
+    @apply rounded-2xl border border-slate-200/80 bg-white p-4 shadow-card sm:p-5;
+  }
+
+  .dashboard-card-header {
+    @apply mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:mb-5 sm:flex-row sm:items-center sm:justify-between sm:pb-4;
+  }
+}
