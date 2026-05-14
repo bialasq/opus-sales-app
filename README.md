@@ -100,6 +100,22 @@ Typy współdzielone: **`backend/shared/api-types.ts`** — frontend łączy je 
 
 ---
 
+## Jak wypchnąć na GitHub (pierwszy raz)
+
+W tym folderze **nie było wcześniej `.git`** — zrobiliśmy `git init` i pierwszy commit (`main`). Żeby zrobić **push**, musisz mieć **puste repo** na GitHubie (bez README z UI) albo istniejące, do którego masz dostęp.
+
+```bash
+cd opus-sales-app-main
+git remote add origin https://github.com/TWOJ_USER/TWOJE_REPO.git
+git push -u origin main
+```
+
+Zamiast HTTPS możesz użyć SSH: `git@github.com:TWOJ_USER/TWOJE_REPO.git`.
+
+Jeśli GitHub krzyczy o dużym pushu — to normalne przy pierwszym commicie; ewentualnie dodaj [Git LFS](https://git-lfs.com/) tylko jeśli kiedyś wrzucisz duże binaria świadomie.
+
+---
+
 ## Licencja / kontakt
 
 Uzupełnij pod swój zespół lub firmę.
