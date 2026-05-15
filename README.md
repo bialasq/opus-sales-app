@@ -1,16 +1,147 @@
-# Opus Sales — analityka sprzedaży
+# Opus Sales — Sales analytics
 
-Hej. Ten README jest po to, żebyś **w 10 minut** odpalił projekt u siebie, bez zgadywania „czemu proxy nie działa” albo „gdzie jest API”.
-
-## Czym to jest (jednym zdaniem)
-
-Aplikacja **Vue 3 + Element Plus** na froncie i **Express + TypeScript** na backendzie. Wgrywasz Excel z wizytami / sprzedażą / fakturami, dostajesz dashboard, analizy, profile klientów i warstwę **AI** (OpenAI albo Anthropic — albo tryb regułowy bez kluczy).
+This README is bilingual: **English first**, then Polish.
 
 ---
 
-## TL;DR — lokalnie bez Dockera
+## English
 
-Terminal 1 (API, domyślnie port **3000**):
+Get the project running locally in about **10 minutes** — without guessing why the proxy fails or where the API lives.
+
+### What it is (one sentence)
+
+**Vue 3 + Element Plus** frontend and **Express + TypeScript** backend. Upload an Excel with visits / sales / invoices, get dashboards, analyses, customer profiles, and an **AI layer** (OpenAI or Anthropic — or rule-based mode without API keys).
+
+### TL;DR — local run without Docker
+
+**Terminal 1** (API, default port **3000**):
+
+```bash
+cd backend
+cp .env.example .env   # Windows: copy .env.example .env
+npm install
+npm run dev
+```
+
+**Terminal 2** (UI, default **http://localhost:8080**):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then in the browser: **upload an `.xlsx`** to run analytics. The backend stores files under `backend/uploads/` (ignored by git so user spreadsheets are not pushed).
+
+**Important:** the frontend talks to the API via **`/api`** and the proxy in `vue.config.js` (default target `http://127.0.0.1:3000`). If the backend is down you will see network errors — start `backend` first.
+
+### Environment variables (AI and ports)
+
+Template: **`backend/.env.example`**. Minimum for AI:
+
+- `AI_PROVIDER` — `openai` or `anthropic` (optional; if unset, a key-based fallback is used)
+- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` — **only** in local `backend/.env`, never commit secrets
+- `AI_MODEL`, `ANTHROPIC_MODEL`, `AI_ANALYST_MODEL`, `AI_STRATEGIST_MODEL` — optional; see `.env.example` for current Claude model IDs (older `claude-3-5-*` snapshots may return 404)
+
+Without keys, the app still runs — some modules use **heuristics / fallback** instead of an LLM.
+
+Frontend: see **`frontend/.env.example`** (proxy vs full API URL).
+
+### Docker
+
+From the repo root:
+
+```bash
+cp backend/.env.example backend/.env   # Windows: copy ...
+docker compose build
+docker compose up
+```
+
+- UI: **http://localhost:8080**
+- API: **http://localhost:3000**
+
+Ports and proxy are documented in `docker-compose.yml` and `frontend/.env.example`.
+
+### Useful scripts
+
+| Location | Command | Purpose |
+|----------|---------|---------|
+| `backend/` | `npm run dev` | API with nodemon |
+| `backend/` | `npm run start` | API without watcher |
+| `backend/` | `npm run typecheck` | TypeScript check |
+| `backend/` | `npm run generate-test-data` | Creates `backend/dane_testowe.xlsx` — Warmia-Mazury sample data (Olsztyn region; generate locally) |
+| `backend/` | `npm run test:agent` | Agent unit tests (if configured) |
+| `frontend/` | `npm run dev` | Dev server + HMR |
+| `frontend/` | `npm run build` | Production build (typecheck + webpack) |
+| `frontend/` | `npm run typecheck` | TS + `@shared` alias |
+
+### Repo layout
+
+```
+backend/          Express, /api/* routes, services (Excel, AI, reports)
+  shared/         Shared API types (also imported in frontend as @shared)
+frontend/         Vue 3, views, ECharts panels
+docker-compose.yml
+```
+
+Shared types: **`backend/shared/api-types.ts`** — wired in `vue.config.js` as `@shared`.
+
+### Sales Route Optimizer (logistics)
+
+- **POST `/api/ai/plan-route`** — day plan from Olsztyn (Warmia-Mazury), 8h budget including return leg, fuel estimate, `meta.route_plan` for the map.
+- **UI:** Comprehensive analysis → **Plan trasy (Olsztyn)** — dialog with `RouteMap.vue` (SVG loop + table).
+
+### Agentic workflow & debugging
+
+Pipeline: **Analyst** (facts) → **Strategist** (ReAct + tools) → **eval** (grounding) → API response.
+
+**Trace logs (backend):** each `GET /api/ai/insights?filename=...` can write JSON under `backend/logs/traces/<ISO>_<sessionId>.json` (see `.gitignore` — only `.gitkeep` is tracked).
+
+| Field | Meaning |
+|-------|---------|
+| `sessionID` | Session UUID (same as `meta.sessionId` in API) |
+| `full_trace` | ReAct steps: `thought`, `action`, `observation` |
+| `analyst_facts` | Facts and `anomalies` from the Analyst step |
+| `eval_summary` | Verified vs `potential_hallucination` counts |
+
+**Prompt versioning:** `backend/prompts/agent_v2.ts` (default via `AGENT_PROMPT_VERSION`).
+
+**Adding a tool:** register in **`backend/services/aiAgentTools.ts`** (`name`, `description`, `parameters`, `execute`). Run `npm run typecheck` in `backend/`.
+
+**Production-style features:** guardrails (`MAX_ITERATIONS`, token limits), rate-limit retry, short-lived cache, async job polling (`POST /api/ai/insights/run`), RLHF feedback (`POST /api/ai/insights/feedback`), optional Judge review.
+
+### Troubleshooting
+
+1. **404 on `/api/...`** — ensure axios base URL ends with `/api` or set `VUE_APP_API_URL` correctly.
+2. **`ECONNREFUSED`** — backend not running or wrong proxy port.
+3. **Empty dashboard** — column names may not match the Excel parser (e.g. missing `Sprzedaż` / `Wizyty` sheets).
+4. **AI shows rules / fallback** — missing or invalid API key / model; check backend logs and `.env`.
+
+### First push to GitHub
+
+```bash
+cd opus-sales-app-main
+git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
+git push -u origin main
+```
+
+### License / contact
+
+Fill in for your team or company.
+
+---
+
+## Polski
+
+Ten sam projekt — **krótki przewodnik po polsku**. Szczegóły techniczne i tabele są analogiczne do sekcji angielskiej powyżej.
+
+### Czym to jest
+
+Aplikacja **Vue 3 + Element Plus** + **Express + TypeScript**. Wgrywasz Excel (wizyty, sprzedaż, faktury), dostajesz dashboard, analizy, profile klientów i warstwę **AI** (OpenAI / Anthropic albo tryb regułowy bez kluczy).
+
+### TL;DR — lokalnie bez Dockera
+
+**Terminal 1** (API, port **3000**):
 
 ```bash
 cd backend
@@ -19,7 +150,7 @@ npm install
 npm run dev
 ```
 
-Terminal 2 (UI, domyślnie **http://localhost:8080**):
+**Terminal 2** (UI, **http://localhost:8080**):
 
 ```bash
 cd frontend
@@ -27,29 +158,19 @@ npm install
 npm run dev
 ```
 
-Potem w przeglądarce: **wgraj `.xlsx`**, żeby coś policzyć. Backend zapisuje pliki w `backend/uploads/` (ten folder jest u nas w `.gitignore`, żeby przypadkiem nie wypchnąć czyjegoś Excela na GitHub).
+W przeglądarce **wgraj plik `.xlsx`**. Backend zapisuje pliki w `backend/uploads/` (folder w `.gitignore`).
 
-**Ważne:** frontend gada z API przez **`/api`** i proxy z `vue.config.js` (domyślnie na `http://127.0.0.1:3000`). Jeśli backend nie stoi — dostaniesz błędy sieciowe; to normalne, odpal najpierw `backend`.
+**Ważne:** frontend łączy się z API przez **`/api`** i proxy z `vue.config.js` (domyślnie `http://127.0.0.1:3000`). Bez backendu pojawią się błędy sieciowe — najpierw uruchom `backend`.
 
----
+### Zmienne środowiskowe
 
-## Zmienne środowiskowe (AI i porty)
+Szablon: **`backend/.env.example`**. Klucze **tylko** w lokalnym `backend/.env` — nie commituj sekretów. Aktualne ID modeli Claude są w przykładzie (starsze `claude-3-5-*` mogą zwracać 404).
 
-Szablon jest w **`backend/.env.example`**. Minimum sensowne pod AI:
+Frontend: **`frontend/.env.example`**.
 
-- `AI_PROVIDER` — `openai` albo `anthropic`
-- `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` — wklejasz klucz **tylko** do lokalnego `backend/.env`, nie do repo
-- `AI_MODEL`, `ANTHROPIC_MODEL` — opcjonalnie, są domyślne
+### Docker
 
-Bez kluczy appka dalej działa — część modułów użyje **heurystyk / fallbacku** zamiast LLM.
-
-Frontend: patrz **`frontend/.env.example`** (proxy vs pełny URL API).
-
----
-
-## Docker (jak wolisz kontenery)
-
-Z głównego katalogu:
+Z katalogu głównego:
 
 ```bash
 copy backend\.env.example backend\.env
@@ -60,127 +181,53 @@ docker compose up
 - UI: **http://localhost:8080**
 - API: **http://localhost:3000**
 
-Szczegóły portów / proxy są opisane w `docker-compose.yml` i w `frontend/.env.example`.
-
----
-
-## Przydatne skrypty
+### Przydatne skrypty
 
 | Gdzie | Komenda | Po co |
 |--------|---------|--------|
-| `backend/` | `npm run dev` | API z autorestartem (nodemon) |
-| `backend/` | `npm run start` | API „na produkcyjnie”, bez watchera |
-| `backend/` | `npm run typecheck` | TypeScript bez emit |
-| `backend/` | `npm run generate-test-data` | Tworzy `backend/dane_testowe.xlsx` — wizyty/sprzedaż z woj. warmińsko-mazurskiego (baza Olsztyn; wygeneruj lokalnie) |
-| `frontend/` | `npm run dev` | Dev server + HMR |
-| `frontend/` | `npm run build` | Produkcja (typecheck + webpack) |
-| `frontend/` | `npm run typecheck` | TS dla frontu + alias `@shared` |
+| `backend/` | `npm run dev` | API (nodemon) |
+| `backend/` | `npm run typecheck` | TypeScript |
+| `backend/` | `npm run generate-test-data` | `dane_testowe.xlsx` — dane testowe **woj. warmińsko-mazurskie** (baza Olsztyn) |
+| `frontend/` | `npm run dev` | Serwer dev + HMR |
+| `frontend/` | `npm run build` | Build produkcyjny |
 
----
-
-## Struktura repo (orientacja)
+### Struktura repo
 
 ```
-backend/          Express, trasy /api/*, serwisy (Excel, AI, raporty)
-  shared/         Wspólne typy API (importowane też w frontendzie jako @shared)
-frontend/         Vue 3, widoki, panele z ECharts
-docker-compose.yml
+backend/          Express, trasy /api/*, serwisy
+  shared/         Wspólne typy API (@shared w Vue)
+frontend/         Vue 3, panele (ECharts)
 ```
 
-Typy współdzielone: **`backend/shared/api-types.ts`** — frontend łączy je przez alias z `vue.config.js` (`@shared`).
+### Sales Route Optimizer
 
----
+- **POST `/api/ai/plan-route`** — plan dnia z Olsztyna, budżet czasu z powrotem do bazy, szacunek paliwa, `meta.route_plan` pod mapę.
+- **UI:** Kompleksowa analiza → **Plan trasy (Olsztyn)** — mapa SVG + tabela.
 
-## Agentic Workflow Debugging
+### Agent AI — debug
 
-Pipeline AI: **Analityk** (fakty) → **Strateg** (ReAct + narzędzia) → **eval** (grounding) → odpowiedź API.
+Pipeline: **Analityk** → **Strateg** (ReAct + narzędzia) → **eval** → odpowiedź.
 
-### Logi trace (backend)
+Logi trace: `backend/logs/traces/` (szczegóły jak w sekcji angielskiej). Prompty: **`backend/prompts/agent_v2.ts`**. Narzędzia: **`backend/services/aiAgentTools.ts`**.
 
-Każde wywołanie `GET /api/ai/insights?filename=...` zapisuje JSON w:
+### Typowe problemy
 
-`backend/logs/traces/<ISO-timestamp>_<sessionID>.json`
+1. **404 na `/api`** — sprawdź bazę URL axios (`/api`).
+2. **`ECONNREFUSED`** — backend wyłączony lub zły port.
+3. **Pusty dashboard** — inne nazwy kolumn / arkuszy w Excelu.
+4. **Tryb regułowy AI** — brak lub błędny klucz API / model w `.env`.
 
-Przykładowe pola:
-
-| Pole | Znaczenie |
-|------|-----------|
-| `sessionID` | UUID sesji (to samo w `meta.sessionId` w API) |
-| `full_trace` | Kroki ReAct: `thought`, `action`, `observation` |
-| `analyst_facts` | Fakty i `anomalies` z kroku Analityka |
-| `total_tokens` / `cost_usd` / `latency_ms` | Observability (szacunek kosztu z `aiLogger.ts`) |
-| `eval_summary` | Liczba sugestii zweryfikowanych vs `potential_hallucination` |
-| `prompt_version` | np. `agent_v1` — patrz `backend/prompts/agent_v1.ts` |
-
-**Jak czytać log:** otwórz plik po odświeżeniu sugestii na dashboardzie; porównaj `full_trace` z tym, co widzisz w UI („Proces myślowy AI”). Jeśli `potential_hallucination` > 0, sprawdź czy nazwy produktów w sugestii są w `analyst_facts`.
-
-### Wersjonowanie promptów
-
-Instrukcje systemowe Analityka i Stratega: **`backend/prompts/agent_v1.ts`**. Przy zmianie zachowania modelu skopiuj plik do `agent_v2.ts`, podnieś `PROMPT_VERSION` i podłącz w `agentOrchestrator.ts`.
-
-### Dodawanie narzędzia (function calling)
-
-1. W **`backend/services/aiAgentTools.ts`** dodaj wpis do tablicy `SALES_AGENT_TOOLS`:
-   - `name`, `description`, `parameters` (JSON Schema),
-   - `execute(ctx, args)` — logika na `SalesWorkbookContext`.
-2. Model (Strateg) sam zdecyduje, kiedy wywołać narzędzie — nie trzeba zmieniać promptu, o ile opis jest jasny.
-3. Uruchom `npm run typecheck` w `backend/` i przetestuj trace w `backend/logs/traces/`.
-
-Zmienne opcjonalne w `backend/.env`: `AI_ANALYST_MODEL`, `AI_STRATEGIST_MODEL` (patrz `.env.example`).
-
-### Production-grade (guardrails, cache, feedback)
-
-| Mechanizm | Opis |
-|-----------|------|
-| **Guardrails** | `MAX_ITERATIONS` (dom. 5), `SESSION_TOKEN_LIMIT` (dom. 28k) — przy przekroczeniu `meta.partial: true` i częściowe sugestie |
-| **Rate limit** | Linear backoff 1s/2s/3s przy HTTP 429 (OpenAI / Anthropic) |
-| **Cache** | Ten sam plik + hash → wynik z pamięci przez 10 min (`meta.from_cache: true`) |
-| **Polling** | `POST /api/ai/insights/run` → `GET /api/ai/insights/job/:sessionId` (`current_step`) |
-| **RLHF** | `POST /api/ai/insights/feedback` → `backend/logs/traces/<sessionId>-feedback.jsonl` |
-| **Prompty v2** | `AGENT_PROMPT_VERSION=agent_v2` (domyślnie) — ton sklepowy w `backend/prompts/agent_v2.ts` |
-
-Nowe narzędzie: `compareWithPreviousPeriod()` — porównanie z poprzednim plikiem w `uploads/`.
-
-### Pętla uczenia (RLHF + knowledge)
-
-- **Vector-less RAG**: `knowledgeService.ts` czyta `logs/traces/*-feedback.jsonl` (zatwierdzenia = `approve`) i wstrzykuje 2–3 przykłady do promptu Stratega.
-- **Auto-korekta**: odrzucenia (`reject`) dla tego samego pliku trafiają do instrukcji „nie powtarzaj tych pomysłów”.
-- **Prognoza**: narzędzie `predictFutureSales()` — regresja liniowa, horyzont 30 dni.
-- **Dashboard → AI Performance**: koszt, skuteczność %, halucynacje, przycisk „Wyczyść cache AI”.
-- **Benchmark**: `cd backend && npm run benchmark -- plik.xlsx`
-- **Docker**: wolumen `./backend/logs/traces` — feedback przetrwa restart kontenera.
-
----
-
-## Typowe „dlaczego nie działa”
-
-1. **404 na `/api/...`** — sprawdź, czy axios ma bazę z `/api` (albo `VUE_APP_API_URL` z końcówką `/api`).
-2. **`ECONNREFUSED`** — backend nie działa albo zły port w proxy.
-3. **Pusty dashboard / zera** — arkusz może mieć inne nazwy kolumn niż oczekuje parser (np. brak `Sprzedaż` / `Wizyty`).
-4. **AI pokazuje „reguły / fallback”** — brak klucza w `backend/.env` albo zły model — zerknij w log backendu po kliknięciu analizy.
-
----
-
-## Jak wypchnąć na GitHub (pierwszy raz)
-
-W tym folderze **nie było wcześniej `.git`** — zrobiliśmy `git init` i pierwszy commit (`main`). Żeby zrobić **push**, musisz mieć **puste repo** na GitHubie (bez README z UI) albo istniejące, do którego masz dostęp.
+### Pierwszy push na GitHub
 
 ```bash
-cd opus-sales-app-main
 git remote add origin https://github.com/TWOJ_USER/TWOJE_REPO.git
 git push -u origin main
 ```
 
-Zamiast HTTPS możesz użyć SSH: `git@github.com:TWOJ_USER/TWOJE_REPO.git`.
+### Licencja / kontakt
 
-Jeśli GitHub krzyczy o dużym pushu — to normalne przy pierwszym commicie; ewentualnie dodaj [Git LFS](https://git-lfs.com/) tylko jeśli kiedyś wrzucisz duże binaria świadomie.
-
----
-
-## Licencja / kontakt
-
-Uzupełnij pod swój zespół lub firmę.
+Uzupełnij pod swój zespół.
 
 ---
 
-*README pisane z myślą o kolejnym człowieku przy klawiaturze — jak coś pominęliśmy, dopisz sekcję i zrób PR.*
+*If something is missing in either language, extend this README and open a PR.*
