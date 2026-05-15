@@ -93,22 +93,88 @@ Shared types: **`backend/shared/api-types.ts`** — wired in `vue.config.js` as 
 
 ### Agentic workflow & debugging
 
-Pipeline: **Analyst** (facts) → **Strategist** (ReAct + tools) → **eval** (grounding) → API response.
+#### High-level pipeline
 
-**Trace logs (backend):** each `GET /api/ai/insights?filename=...` can write JSON under `backend/logs/traces/<ISO>_<sessionId>.json` (see `.gitignore` — only `.gitkeep` is tracked).
+Dashboard AI suggestions use **`getAiInsightsForFile`** in `backend/services/aiService.ts`. When an LLM provider is configured (`chooseProvider()` from `llmInvoke.ts`), the flow is:
+
+1. **Cache** — key = uploaded filename + optional user instructions (`agentCache.ts`). On hit, the cached `AiInsightsResponse` is returned and a trace row is still logged with `from_cache: true`.
+2. **Empty workbook** — if the workbook yields no product rows, the API returns an empty suggestion list with `meta.emptyDataset`.
+3. **Orchestration** — `runAgenticInsightsWorkflow` in `agentOrchestrator.ts` runs the two-agent pipeline below.
+4. **Post-processing** — `finalizeResponse` in `aiService.ts` runs **grounding eval**, optional **Judge**, writes an async **trace JSON**, and stores the result in the short-lived cache.
+
+If no API keys exist, `getAiInsightsForFile` skips the orchestrator and returns **rule-based** suggestions (`orchestration: rules-only`) with the same eval pass where applicable.
+
+#### Step 1 — Analyst (`runAnalystPass`)
+
+- **Purpose:** produce **structured facts only** (no business recommendations): `summary`, `anomalies`, `metrics`, optional `toolSnapshots`.
+- **Implementation:** before the LLM call, the backend always runs **`getLowStockAlerts`** on the workbook (`executeAgentTool` / `SalesWorkbookContext`). That snapshot is embedded in the Analyst user payload and again attached to `facts.toolSnapshots`.
+- **Model:** `invokeLlmJsonObject` with `ANALYST_SYSTEM_PROMPT` from the active prompt pack (`backend/prompts/` via `AGENT_PROMPT_VERSION`). Model override: `AI_ANALYST_MODEL`, defaults: OpenAI `gpt-4o-mini`, Anthropic `claude-haiku-4-5-20251001`.
+- **Failure handling:** if the Analyst LLM call throws, `buildAnalystUnavailableFacts` builds synthetic facts (error in `anomalies`, optional alerts snapshot) so the Strategist can still run.
+
+#### Expert persona routing (`resolveExpertPersona`)
+
+After facts exist, the Strategist gets an **expert persona** appended to the system prompt:
+
+| Persona | When chosen (heuristic) |
+|---------|-------------------------|
+| `regional_logistics_manager` | Keywords about routes / visits / Olsztyn / region; wins if score ≥2 and beats finance & supply |
+| `financial_controller` | Payment / receivables / margin language; wins if score > supply and ≥2 |
+| `supply_chain_manager` | Stock / rotation / overstock language; extra weight if `getLowStockAlerts` reports risks |
+| `store_manager` | default |
+
+Persona blocks live in `agent_v2.ts` (`STRATEGIST_PERSONA_*`). The Strategist system prompt also includes **`buildStrategistKnowledgeContext`** (`knowledgeService.ts`): short RLHF-style excerpts from prior **approved** feedback and **rejects** for the same file family, so the model avoids repeating rejected patterns.
+
+#### Step 2 — Strategist (ReAct + tools)
+
+- **Input:** Analyst `AnalystFacts` JSON + product count + optional **Direct User Constraint** (`userInstructions` from the API query/body).
+- **System prompt:** `STRATEGIST_SYSTEM_PROMPT` + persona block + knowledge context + product name hints from the workbook.
+- **Loop:** separate implementations for **OpenAI** (`runStrategistReActOpenAI`) and **Anthropic** (`runStrategistReActAnthropic`):
+  - Each round the model may return **tool_calls** (OpenAI) or tool-use blocks (Anthropic). The server executes matching entries in **`SALES_AGENT_TOOLS`** (`aiAgentTools.ts`), appends `thought` / `action` / `actionInput` / `observation` (truncated) to **`reactTrace`**, and feeds tool results back as the next message.
+  - **Stopping when the model returns plain assistant text** that parses as JSON containing `suggestions` (and optionally `reactTrace`): suggestions are validated (title, description, priority) and capped (e.g. up to 12).
+  - If JSON is invalid, the server appends **`STRATEGIST_RETRY_HINT`** and continues until limits hit.
+
+**Strategist model:** `AI_STRATEGIST_MODEL` or `AI_MODEL` (OpenAI) / `ANTHROPIC_MODEL` (Anthropic), with code defaults (`gpt-4o`, `claude-sonnet-4-6`).
+
+#### Guardrails (`agentGuardrails.ts`)
+
+| Control | Meaning |
+|---------|---------|
+| `MAX_ITERATIONS` | Max ReAct rounds (default **5**, env `AGENT_MAX_ITERATIONS`) |
+| `SESSION_TOKEN_LIMIT` | Cumulative tokens for the session (default **28_000**, env `AGENT_SESSION_TOKEN_LIMIT`) |
+| Tool budget | `shouldStopForToolBudget`: stops when the number of tool steps in `reactTrace` reaches `MAX_ITERATIONS` |
+
+On stop, **`buildPartialAgenticResult`** returns partial suggestions + `meta.partial` / `partialReason` / `guardrailMessage`.
+
+#### Post-orchestration (`finalizeResponse` in `aiService.ts`)
+
+1. **`evaluateAllSuggestions`** (`agentEval.ts`) — fuzzy-matches product names mentioned in each suggestion against the **Analyst facts** and the **product catalog**; attaches `eval` flags (`verified`, `potential_hallucination`, etc.) and an `evalSummary`.
+2. **`runJudgeReview`** (`judgeService.ts`) — optional second LLM pass over facts + suggestions; result in **`meta.judge_review`** (per-item consistency / risk / `approved`).
+3. **`logAgentTraceAsync`** — persists a JSON trace under `backend/logs/traces/` (ignored except `.gitkeep`) with models, tokens, cost estimate, eval summary, judge output.
+4. **`setCachedInsights`** — stores the response for repeat requests with the same cache key.
+
+#### Async jobs
+
+`POST /api/ai/insights/run` creates an in-memory job (`agentJobStore.ts`) that runs the same workflow in the background; the client polls **`GET /api/ai/insights/job/:sessionId`** for `status`, `current_step` (driven by `WorkflowHooks.onStep` from the orchestrator), and the final `result`.
+
+#### RLHF feedback
+
+`POST /api/ai/insights/feedback` appends structured feedback; `knowledgeService.ts` ranks prior **approve** lines for injection into future Strategist prompts.
+
+#### Trace log fields (reference)
 
 | Field | Meaning |
 |-------|---------|
-| `sessionID` | Session UUID (same as `meta.sessionId` in API) |
-| `full_trace` | ReAct steps: `thought`, `action`, `observation` |
-| `analyst_facts` | Facts and `anomalies` from the Analyst step |
-| `eval_summary` | Verified vs `potential_hallucination` counts |
+| `sessionID` | Same as `meta.sessionId` in the API |
+| `full_trace` | ReAct steps: `thought`, `action`, `actionInput`, `observation` |
+| `analyst_facts` | Analyst JSON payload |
+| `eval_summary` | Counts from `evaluateAllSuggestions` |
+| `judge_review` | Output of `runJudgeReview` when present |
 
-**Prompt versioning:** `backend/prompts/agent_v2.ts` (default via `AGENT_PROMPT_VERSION`).
+**Prompt pack switch:** `AGENT_PROMPT_VERSION` → `backend/prompts/index.ts` maps to `agent_v1` or `agent_v2`.
 
-**Adding a tool:** register in **`backend/services/aiAgentTools.ts`** (`name`, `description`, `parameters`, `execute`). Run `npm run typecheck` in `backend/`.
+**Adding a tool:** register in **`backend/services/aiAgentTools.ts`** (`name`, `description`, `parameters`, `execute`). OpenAI uses JSON Schema–like `parameters`; the Strategist discovers tools by description. Run `npm run typecheck` in `backend/`.
 
-**Production-style features:** guardrails (`MAX_ITERATIONS`, token limits), rate-limit retry, short-lived cache, async job polling (`POST /api/ai/insights/run`), RLHF feedback (`POST /api/ai/insights/feedback`), optional Judge review.
+**Related (not the main insights loop):** `runAgentToolInsightLoop` in `agentOrchestrator.ts` is a lighter ReAct loop used by legacy analytics endpoints that expect a single `insights` string. **Sales Route Optimizer** uses a separate planner in `routePlannerService.ts` with a reduced tool set (`getRoutePlannerTools`).
 
 ### Troubleshooting
 
@@ -204,11 +270,83 @@ frontend/         Vue 3, panele (ECharts)
 - **POST `/api/ai/plan-route`** — plan dnia z Olsztyna, budżet czasu z powrotem do bazy, szacunek paliwa, `meta.route_plan` pod mapę.
 - **UI:** Kompleksowa analiza → **Plan trasy (Olsztyn)** — mapa SVG + tabela.
 
-### Agent AI — debug
+### Orkiestracja agentów (szczegółowo)
 
-Pipeline: **Analityk** → **Strateg** (ReAct + narzędzia) → **eval** → odpowiedź.
+Poniżej ten sam przepływ co w sekcji angielskiej — **kolejność i pliki źródłowe**.
 
-Logi trace: `backend/logs/traces/` (szczegóły jak w sekcji angielskiej). Prompty: **`backend/prompts/agent_v2.ts`**. Narzędzia: **`backend/services/aiAgentTools.ts`**.
+#### Wejście API
+
+Sugestie AI z dashboardu obsługuje **`getAiInsightsForFile`** (`backend/services/aiService.ts`).
+
+1. **Cache** (`agentCache.ts`) — klucz: nazwa pliku w `uploads/` + opcjonalne `userInstructions`. Trafienie → natychmiastowy zwrot wyniku, w logu trace flaga `from_cache`.
+2. **Brak produktów** w Excelu → pusta lista, `meta.emptyDataset`.
+3. **Brak klucza LLM** → tryb **`rules-only`** (heurystyki z rotacji), bez `runAgenticInsightsWorkflow`.
+4. **Pełny pipeline** → `runAgenticInsightsWorkflow` (`agentOrchestrator.ts`), potem `finalizeResponse` (`aiService.ts`).
+
+#### Krok 1 — Analityk (`runAnalystPass`)
+
+- Zwraca wyłącznie **fakty**: `summary`, `anomalies`, `metrics`, opcjonalnie `toolSnapshots` — bez gotowych rekomendacji biznesowych.
+- **Zawsze** przed LLM wywoływane jest narzędzie **`getLowStockAlerts`** na kontekście pliku; wynik trafia do payloadu dla modelu i do `facts.toolSnapshots`.
+- Wywołanie: **`invokeLlmJsonObject`** z `ANALYST_SYSTEM_PROMPT` z aktywnego pakietu promptów (`backend/prompts/`, wybór przez `AGENT_PROMPT_VERSION`). Model: `AI_ANALYST_MODEL` lub domyślny (OpenAI: `gpt-4o-mini`, Anthropic: Haiku z `.env.example`).
+- **Błąd Analityka** — budowane są sztuczne fakty (`buildAnalystUnavailableFacts`), Strateg kontynuuje z komunikatem w `anomalies` i ewentualnym snapshotem alertów.
+
+#### Routing persony Stratega (`resolveExpertPersona`)
+
+Na podstawie tekstu faktów + snapshotu `getLowStockAlerts` wybierana jest jedna z person:
+
+- **`regional_logistics_manager`** — słowa kluczowe trasy / wizyt / Olsztyn / region (logistyka).
+- **`financial_controller`** — płatności, należności, marże (wyższy score niż supply, próg ≥2).
+- **`supply_chain_manager`** — magazyn, rotacja, stockout/overstock (+ bonus za niepuste listy ryzyka z narzędzia).
+- **`store_manager`** — domyślnie.
+
+Bloki person w **`backend/prompts/agent_v2.ts`**. Do promptu Stratega doklejany jest też kontekst z **`knowledgeService.ts`** (krótkie cytaty z wcześniejszego feedbacku **approve** oraz lista **reject** dla podobnych plików).
+
+#### Krok 2 — Strateg (ReAct + narzędzia)
+
+- **Wejście:** JSON faktów Analityka + liczba produktów + opcjonalne wytyczne użytkownika (Direct User Constraint).
+- **Pętla:** osobna implementacja **OpenAI** (`runStrategistReActOpenAI`) i **Anthropic** (`runStrategistReActAnthropic`): function calling / tool use → **`executeAgentTool`** dla wpisów z **`SALES_AGENT_TOOLS`** (`aiAgentTools.ts`) → dopisanie kroku do **`reactTrace`** (`thought`, `action`, `actionInput`, `observation` skrócone) → zwrot wyniku narzędzia jako kolejna wiadomość.
+- **Zakończenie:** odpowiedź tekstowa modelu parsowana jako JSON z tablicą **`suggestions`** (i opcjonalnie własnym `reactTrace`). Błąd parsowania → hint **`STRATEGIST_RETRY_HINT`** i kolejna runda, aż limity.
+
+**Model Stratega:** `AI_STRATEGIST_MODEL` lub `AI_MODEL` / `ANTHROPIC_MODEL` (domyślnie mocniejszy model niż Analityk).
+
+#### Guardrails (`agentGuardrails.ts`)
+
+- **`AGENT_MAX_ITERATIONS`** (domyślnie 5) — maks. rund pętli ReAct.
+- **`AGENT_SESSION_TOKEN_LIMIT`** (domyślnie 28000) — sumaryczny budżet tokenów na sesję Analityk+Strateg.
+- **Budżet narzędzi** — `shouldStopForToolBudget`: po `MAX_ITERATIONS` krokach z narzędziami przerywamy z wynikiem częściowym (`meta.partial`, `partialReason`).
+
+#### Po orkiestracji (`finalizeResponse`)
+
+1. **`evaluateAllSuggestions`** (`agentEval.ts`) — dopasowanie nazw produktów w sugestiach do katalogu i faktów (m.in. fuzzy); pola `eval` na każdej sugestii + `evalSummary`.
+2. **`runJudgeReview`** (`judgeService.ts`) — drugi LLM audytuje spójność z faktami; wynik w **`meta.judge_review`**.
+3. **`logAgentTraceAsync`** — zapis JSON do `backend/logs/traces/` (w repo tylko `.gitkeep`).
+4. **`setCachedInsights`** — cache odpowiedzi.
+
+#### Tryb asynchroniczny
+
+`POST /api/ai/insights/run` → zadanie w `agentJobStore.ts` → to samo workflow w tle; front **polluje** `GET /api/ai/insights/job/:sessionId` (`current_step` aktualizowany przez hooki `onStep` z orkiestratora).
+
+#### RLHF
+
+`POST /api/ai/insights/feedback` zapisuje werdykt; `knowledgeService.ts` wczytuje historię i wstrzykuje ją do kolejnych promptów Stratega.
+
+#### Inne pętle (nie = główny dashboard)
+
+- **`runAgentToolInsightLoop`** — uproszczony ReAct zwracający jeden blok tekstowy `insights` (endpointy legacy w `aiAgents` / analytics).
+- **`routePlannerService.ts`** — osobny agent planu trasy z **węższym zestawem narzędzi** (`getRoutePlannerTools`), nie mylić z główną orkiestrą insightów.
+
+#### Pliki „ścieżka krytyczna”
+
+| Plik | Rola |
+|------|------|
+| `aiService.ts` | Cache, wejście/wyjście API, `finalizeResponse`, joby |
+| `agentOrchestrator.ts` | Analityk, Strateg, ReAct OpenAI/Anthropic |
+| `aiAgentTools.ts` | Rejestr narzędzi + `SalesWorkbookContext` |
+| `agentGuardrails.ts` | Limity iteracji i tokenów |
+| `agentEval.ts` | Grounding sugestii |
+| `judgeService.ts` | Judge LLM |
+| `knowledgeService.ts` | RLHF / kontekst z logów |
+| `prompts/agent_v*.ts` | Prompty Analityka i Stratega |
 
 ### Typowe problemy
 
