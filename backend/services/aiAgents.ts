@@ -1,4 +1,13 @@
+import { SalesWorkbookContext } from "./aiAgentTools";
+import { runAgentToolInsightLoop } from "./agentOrchestrator";
+import {
+  AGENT_INSIGHT_JSON_HINT,
+  AGENT_INSIGHT_TOOL_HINT,
+} from "../prompts";
+import { createLogger } from "./appLogger";
 import { chooseProvider, invokeLlmJsonObject } from "./llmInvoke";
+
+const log = createLogger("aiAgents");
 import type {
   AnalyticsAgentInsightsMeta,
   AnalyticsAgentInsightsResponse,
@@ -83,28 +92,34 @@ function parseOptimizedRoute(raw: string): string | null {
 }
 
 function systemForAgent(agentType: AgentInsightKey): string {
-  const jsonHint =
-    'Zwróć WYŁĄCZNIE jeden obiekt JSON: {"insights": string} — pole insights: 6–18 zdań po polsku, konkretnie pod przekazane dane.';
+  const toolHint = AGENT_INSIGHT_TOOL_HINT;
+  const jsonHint = AGENT_INSIGHT_JSON_HINT;
 
   switch (agentType) {
     case "salesOptimizer":
-      return `Jesteś starszym menedżerem sprzedaży B2B. Analizujesz dane KPI / dashboardu przekazane w JSON.\n${jsonHint}`;
+      return `Jesteś starszym menedżerem sprzedaży B2B.\n${toolHint}\n${jsonHint}`;
     case "salesCoach":
-      return `Jesteś coachem sprzedaży B2B. Oceniasz wyniki i zachowania zespołu na podstawie danych JSON.\n${jsonHint}`;
+      return `Jesteś coachem sprzedaży B2B.\n${toolHint}\n${jsonHint}`;
     case "productAnalyzer":
-      return `Jesteś analitykiem produktowym. Interpretujesz strukturę sprzedaży / kategorii z JSON.\n${jsonHint}`;
+      return `Jesteś analitykiem produktowym. Użyj getTopProducts i getLowStockAlerts.\n${toolHint}\n${jsonHint}`;
     case "customerInsights":
-      return `Jesteś analitykiem CRM. Tworzysz syntetyczny profil strategiczny klienta na podstawie JSON.\n${jsonHint}`;
+      return `Jesteś analitykiem CRM. Użyj calculateCustomerLTV gdy znasz NIP klienta.\n${toolHint}\n${jsonHint}`;
     case "routePlanner":
-      return `Jesteś planistą logistyki field sales. \n${jsonHint}`;
+      return `Jesteś planistą logistyki field sales.\n${jsonHint}`;
     default:
-      return `Jesteś analitykiem biznesowym.\n${jsonHint}`;
+      return `Jesteś analitykiem biznesowym.\n${toolHint}\n${jsonHint}`;
   }
 }
 
+export type RunAgentInsightOptions = {
+  /** Plik w uploads/ — włącza ReAct + function calling zamiast wklejania dużego JSON */
+  filename?: string;
+};
+
 export async function runAgentInsight(
   agentType: AgentInsightKey,
-  data: unknown
+  data: unknown,
+  options?: RunAgentInsightOptions
 ): Promise<AnalyticsAgentInsightsResponse> {
   const fallbackText = FALLBACK_INSIGHTS[agentType];
   const provider = chooseProvider();
@@ -117,6 +132,36 @@ export async function runAgentInsight(
   }
 
   const system = systemForAgent(agentType);
+  const compactContext =
+    typeof data === "object" && data !== null
+      ? safeJsonPayload({
+          agentType,
+          keys: Object.keys(data as object).slice(0, 20),
+          sample: data,
+        })
+      : safeJsonPayload({ agentType, data });
+
+  if (options?.filename?.trim()) {
+    try {
+      const ctx = new SalesWorkbookContext(options.filename.trim());
+      return await runAgentToolInsightLoop(
+        ctx,
+        system,
+        `Typ agenta: ${agentType}\nKontekst UI (skrót, nie pełny dump):\n${compactContext.slice(0, 2500)}`
+      );
+    } catch (e) {
+      log.error(`Tool loop error (${agentType})`, e);
+      return {
+        insights: fallbackText,
+        meta: {
+          provider: `${provider}-error-fallback`,
+          model: "placeholder",
+          orchestration: "react-tools-agent-insight-failed",
+        },
+      };
+    }
+  }
+
   const user = `Typ agenta: ${agentType}\nDane wejściowe (JSON):\n${safeJsonPayload(data)}`;
 
   try {
@@ -132,11 +177,12 @@ export async function runAgentInsight(
         meta: {
           provider: used,
           model: used === "anthropic" ? "claude" : "openai",
+          orchestration: "legacy-json-payload",
         },
       };
     }
   } catch (e) {
-    console.error(`[aiAgents] LLM error (${agentType}):`, e);
+    log.error(`LLM error (${agentType})`, e);
     return {
       insights: fallbackText,
       meta: {
@@ -192,7 +238,7 @@ Zwróć WYŁĄCZNIE JSON: {"optimizedRoute": string} — pole optimizedRoute: pl
       };
     }
   } catch (e) {
-    console.error("[aiAgents] route optimization LLM error:", e);
+    log.error("route optimization LLM error", e);
     return {
       optimizedRoute: fallback,
       meta: {

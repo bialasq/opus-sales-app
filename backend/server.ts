@@ -8,8 +8,12 @@ import express, {
 } from "express";
 import cors from "cors";
 import multer from "multer";
+import { rootLogger } from "./services/appLogger";
 
-dotenv.config();
+dotenv.config({
+  path: path.join(__dirname, ".env"),
+  override: process.env.NODE_ENV !== "production",
+});
 
 // Trasy w JS — require() do czasu migracji plików na .ts (Node ładuje je jak dotąd).
 const analyticsRoutes = require("./routes/analytics") as Router;
@@ -64,7 +68,7 @@ const testDataDownload: RequestHandler = (_req, res, _next) => {
   }
   res.download(testFilePath, "dane_testowe.xlsx", (err: Error | null) => {
     if (err) {
-      console.error("Błąd pobierania pliku testowego:", err);
+      rootLogger.error("Błąd pobierania pliku testowego", err);
       if (!res.headersSent) {
         res.status(500).json({ error: err.message });
       }
@@ -106,6 +110,16 @@ app.get("/", (_req, res) => {
 </html>`);
 });
 
-app.listen(PORT, () => {
-  console.log(`Serwer działa na porcie ${PORT}`);
+const server = app.listen(PORT, () => {
+  rootLogger.info(`Serwer działa na porcie ${PORT}`);
+});
+
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    rootLogger.error(
+      `Port ${PORT} jest już zajęty — backend już działa w innym terminalu. Zatrzymaj go (Ctrl+C) albo zamknij proces na porcie ${PORT}, potem uruchom npm run dev ponownie.`
+    );
+    process.exit(1);
+  }
+  throw err;
 });

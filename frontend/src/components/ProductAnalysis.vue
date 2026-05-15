@@ -348,6 +348,7 @@ export default {
         const response = await api.post("/analytics/ai-insights", {
           data: { type: "categories" },
           agentType: "productAnalyzer",
+          filename: store.state.currentFile || undefined,
         });
         categoryAnalysis.value = response.data.insights;
       } catch (error) {

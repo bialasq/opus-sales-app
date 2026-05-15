@@ -1,4 +1,7 @@
+import { createLogger } from "./appLogger";
 import { chooseProvider, invokeLlmJsonObject } from "./llmInvoke";
+
+const log = createLogger("recommendationEnricher");
 import type {
   HybridAiRecommendation,
   HybridRecommendationsMeta,
@@ -273,7 +276,7 @@ export async function generateHybridAIRecommendations(
       };
     }
   } catch (e) {
-    console.error("[recommendationEnricher] LLM error:", e);
+    log.error("LLM error", e);
     return {
       recommendations: rules,
       meta: {

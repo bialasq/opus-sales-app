@@ -3,7 +3,7 @@ import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router";
 import store from "./store";
-import ElementPlus from "element-plus";
+import ElementPlus, { ElMessage } from "element-plus";
 import "element-plus/dist/index.css";
 import "./assets/tailwind.css";
 import * as ElementPlusIconsVue from "@element-plus/icons-vue";
@@ -19,7 +19,6 @@ app.use(store);
 app.use(router);
 app.use(ElementPlus);
 
-// Opcjonalnie - dodaj ElMessage jako globalną właściwość
-app.config.globalProperties.$message = ElementPlus.ElMessage;
+app.config.globalProperties.$message = ElMessage;
 
 app.mount("#app");

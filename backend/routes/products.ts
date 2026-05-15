@@ -1,4 +1,7 @@
 import express, { type Request, type Response } from "express";
+import { createLogger } from "../services/appLogger";
+
+const log = createLogger("routes/products");
 import path from "path";
 import { validateBody } from "../middleware/validateRequest";
 import { filenameBodySchema, promotionsBodySchema } from "../schemas/apiRequests";
@@ -53,7 +56,7 @@ router.post(
 
       res.json(out);
     } catch (error) {
-      console.error("Błąd analizy produktów:", error);
+      log.error("Błąd analizy produktów:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }
@@ -133,7 +136,7 @@ router.post(
 
       res.json(suggestions.slice(0, 5));
     } catch (error) {
-      console.error("Błąd generowania promocji:", error);
+      log.error("Błąd generowania promocji:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }

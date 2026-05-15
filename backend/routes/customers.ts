@@ -1,4 +1,7 @@
 import express, { type Request, type Response } from "express";
+import { createLogger } from "../services/appLogger";
+
+const log = createLogger("routes/customers");
 import path from "path";
 import { validateBody } from "../middleware/validateRequest";
 import { filenameBodySchema, visitPlanBodySchema } from "../schemas/apiRequests";
@@ -25,7 +28,7 @@ router.post(
       const customerProfiles = excelService.analyzeCustomerData(data);
       res.json(customerProfiles);
     } catch (error) {
-      console.error("Błąd profilowania klientów:", error);
+      log.error("Błąd profilowania klientów:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }
@@ -103,7 +106,7 @@ router.post(
 
       res.json(visitPlan);
     } catch (error) {
-      console.error("Błąd generowania planu wizyt:", error);
+      log.error("Błąd generowania planu wizyt:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }

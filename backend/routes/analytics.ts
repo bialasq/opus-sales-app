@@ -13,6 +13,9 @@ import type {
   AnalyticsSummary,
   TestDataInfoResponse,
 } from "../types/api";
+import { createLogger } from "../services/appLogger";
+
+const log = createLogger("routes/analytics");
 import { runComprehensiveExpertAi } from "../services/comprehensiveExpertAi";
 import { runAgentInsight, runRouteOptimization } from "../services/aiAgents";
 import { generateHybridAIRecommendations } from "../services/recommendationEnricher";
@@ -143,7 +146,7 @@ router.post(
 
       res.json(out);
     } catch (error) {
-      console.error("Błąd analizy danych:", error);
+      log.error("Błąd analizy danych:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({
         error: msg,
@@ -215,7 +218,7 @@ router.post(
 
       res.json(analysisResult);
     } catch (error) {
-      console.error("Błąd analizy kompleksowej:", error);
+      log.error("Błąd analizy kompleksowej:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({
         error: msg,
@@ -235,7 +238,7 @@ router.post(
       const result = await runComprehensiveExpertAi(analysisData);
       res.json(result);
     } catch (error) {
-      console.error("Błąd comprehensive-expert-ai:", error);
+      log.error("Błąd comprehensive-expert-ai:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }
@@ -264,7 +267,7 @@ router.post(
         report,
       });
     } catch (error) {
-      console.error("Błąd generowania raportu:", error);
+      log.error("Błąd generowania raportu:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }
@@ -287,7 +290,7 @@ router.post(
 
       res.json({ optimizedRoute, meta });
     } catch (error) {
-      console.error("Błąd optymalizacji tras:", error);
+      log.error("Błąd optymalizacji tras:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }
@@ -299,15 +302,18 @@ router.post(
   validateBody(aiInsightsBodySchema),
   async (req: Request, res: Response) => {
     try {
-      const { data, agentType } = req.body as {
+      const { data, agentType, filename } = req.body as {
         data: unknown;
         agentType: AgentInsightKey;
+        filename?: string;
       };
 
-      const result = await runAgentInsight(agentType, data);
+      const result = await runAgentInsight(agentType, data, {
+        filename: filename?.trim() || undefined,
+      });
       res.json(result);
     } catch (error) {
-      console.error("Błąd AI insights:", error);
+      log.error("Błąd AI insights:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
     }

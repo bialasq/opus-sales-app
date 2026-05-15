@@ -37,16 +37,50 @@
           </p>
         </div>
       </div>
-      <el-button
-        type="primary"
-        plain
-        class="!shrink-0 !rounded-xl !border-indigo-200 !font-medium"
-        :loading="loading"
-        :disabled="!filename"
-        @click="loadInsights"
-      >
-        Odśwież
-      </el-button>
+      <div class="flex shrink-0 flex-wrap items-center gap-2">
+        <el-button
+          v-if="hasTrace"
+          type="default"
+          plain
+          class="!rounded-xl !font-medium"
+          :disabled="loading"
+          @click="traceDialogOpen = true"
+        >
+          <el-icon class="mr-1"><View /></el-icon>
+          Proces myślowy AI
+        </el-button>
+        <el-button
+          type="primary"
+          plain
+          class="!rounded-xl !border-indigo-200 !font-medium"
+          :loading="loading"
+          :disabled="!filename"
+          @click="loadInsights"
+        >
+          Analizuj
+        </el-button>
+      </div>
+    </div>
+
+    <div
+      v-if="filename && !loading"
+      class="relative mb-4 px-1"
+    >
+      <label class="mb-1.5 block text-xs font-medium text-slate-600">
+        Dodatkowe wytyczne dla AI
+      </label>
+      <el-input
+        v-model="userGuidelines"
+        type="textarea"
+        :rows="2"
+        maxlength="2000"
+        show-word-limit
+        placeholder="np. Priorytetyzuj produkty z niską marżą"
+        class="!text-sm"
+      />
+      <p class="mt-1 text-[0.65rem] text-slate-400">
+        Opcjonalnie — trafią do Stratega jako Direct User Constraint.
+      </p>
     </div>
 
     <div
@@ -60,9 +94,11 @@
     </div>
 
     <div v-else-if="loading" class="relative space-y-4 px-1 py-4">
-      <div class="flex items-center gap-2 text-sm font-medium text-slate-600">
-        <el-icon class="is-loading text-xl text-indigo-500"><Loading /></el-icon>
-        <span>Analiza modelu — to może potrwać kilkanaście sekund…</span>
+      <div class="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+        <div class="flex items-center gap-2 text-sm font-medium text-indigo-900">
+          <el-icon class="is-loading text-xl text-indigo-500"><Loading /></el-icon>
+          <span>{{ agentStep || "Uruchamianie agenta…" }}</span>
+        </div>
       </div>
       <el-skeleton animated :rows="5" />
     </div>
@@ -109,32 +145,138 @@
           {{ priorityLabel(item.priority) }}
         </span>
         <div class="min-w-0 flex-1">
-          <h3 class="text-sm font-semibold text-slate-900 sm:text-base">
-            {{ item.title }}
-          </h3>
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="text-sm font-semibold text-slate-900 sm:text-base">
+              {{ item.title }}
+            </h3>
+            <el-tag
+              v-if="judgeItemFor(index)?.approved"
+              type="success"
+              size="small"
+              effect="plain"
+              round
+              class="!border-emerald-200 !bg-emerald-50 !text-emerald-800"
+            >
+              <span class="inline-flex items-center gap-1">
+                <el-icon class="text-sm"><CircleCheck /></el-icon>
+                Zweryfikowane przez Judge LLM
+              </span>
+            </el-tag>
+            <el-tag
+              v-else-if="judgeItemFor(index) && !judgeItemFor(index).approved"
+              type="warning"
+              size="small"
+              effect="plain"
+              round
+            >
+              Judge: wymaga uwagi
+            </el-tag>
+            <el-tag
+              v-if="item.eval?.potential_hallucination"
+              type="danger"
+              size="small"
+              effect="dark"
+              round
+            >
+              potencjalna halucynacja
+            </el-tag>
+            <el-tag
+              v-for="(anomaly, ai) in matchedAnomalies(item)"
+              :key="ai"
+              type="warning"
+              size="small"
+              effect="plain"
+              round
+              class="max-w-[14rem] !h-auto !whitespace-normal !py-1"
+            >
+              {{ anomaly }}
+            </el-tag>
+          </div>
           <p class="mt-1.5 text-xs leading-relaxed text-slate-600 sm:text-sm">
             {{ item.description }}
           </p>
+          <div v-if="sessionId" class="mt-3 flex flex-wrap gap-2">
+            <el-button
+              size="small"
+              type="success"
+              plain
+              :disabled="feedbackGiven[index] === 'approve'"
+              @click="submitFeedback(index, 'approve', item)"
+            >
+              Zatwierdź
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              :disabled="feedbackGiven[index] === 'reject'"
+              @click="submitFeedback(index, 'reject', item)"
+            >
+              Odrzuć
+            </el-button>
+            <el-tag v-if="feedbackGiven[index]" size="small" type="info" effect="plain">
+              {{ feedbackGiven[index] === "approve" ? "Zaakceptowano" : "Odrzucono" }}
+            </el-tag>
+          </div>
         </div>
       </li>
     </ul>
+
+    <AgenticTraceDialog
+      v-model="traceDialogOpen"
+      :trace="reactTrace"
+      :analyst-facts="analystFacts"
+      :meta="meta"
+    />
   </section>
 </template>
 
 <script>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch } from "vue";
 import { useStore } from "vuex";
 import { ElMessage } from "element-plus";
-import { getAiInsights } from "@/services/api";
+import {
+  pollAiInsightsJob,
+  postSuggestionFeedback,
+  runAiInsightsJob,
+} from "@/services/api";
+import AgenticTraceDialog from "@/components/shared/AgenticTraceDialog.vue";
 
 export default {
   name: "AISuggestions",
+  components: { AgenticTraceDialog },
   setup() {
     const store = useStore();
     const loading = ref(false);
     const error = ref("");
     const suggestions = ref([]);
+    const reactTrace = ref([]);
+    const analystFacts = ref(null);
+    const traceDialogOpen = ref(false);
+    const agentStep = ref("");
+    const sessionId = ref("");
+    const feedbackGiven = ref({});
+    const userGuidelines = ref("");
     const meta = ref({ provider: "", productCount: 0, emptyDataset: false });
+
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const applyInsightsData = (data) => {
+      suggestions.value = data.suggestions || [];
+      reactTrace.value = data.reactTrace || [];
+      analystFacts.value = data.analystFacts || null;
+      sessionId.value = data.meta?.sessionId || "";
+      meta.value = {
+        ...(data.meta || {}),
+        provider: data.meta?.provider || "",
+        productCount: data.meta?.productCount ?? 0,
+        emptyDataset: Boolean(data.meta?.emptyDataset),
+      };
+    };
+
+    const hasTrace = computed(
+      () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0
+    );
 
     const filename = computed(() => store.state.currentFile || "");
 
@@ -160,8 +302,28 @@ export default {
         "anthropic-parsed-empty": "Tryb: reguły (niepoprawna odpowiedź modelu)",
       };
       const prefix = labels[m.provider] || `Źródło: ${m.provider}`;
-      return `${prefix} · ${m.productCount} produktów w analizie`;
+      const cache = m.from_cache ? " · cache" : "";
+      const partial = m.partial ? " · częściowe wyniki" : "";
+      const personaLabels = {
+        store_manager: "Store Manager",
+        supply_chain_manager: "Supply Chain",
+        financial_controller: "Financial Controller",
+      };
+      const persona = m.strategistPersona
+        ? ` · ${personaLabels[m.strategistPersona] || m.strategistPersona}`
+        : "";
+      const userHint = m.userInstructionsApplied ? " · wytyczne użytkownika" : "";
+      const judge = m.judge_review
+        ? ` · Judge ${m.judge_review.overall_pass ? "OK" : "uwaga"}`
+        : "";
+      return `${prefix} · ${m.productCount} produktów${persona}${userHint}${judge}${cache}${partial}`;
     });
+
+    const judgeItemFor = (index) => {
+      const items = meta.value?.judge_review?.items;
+      if (!Array.isArray(items)) return null;
+      return items.find((i) => i.index === index) ?? items[index] ?? null;
+    };
 
     const priorityLabel = (p) =>
       ({ high: "Pilne", medium: "Ważne", low: "Opcja" }[p] || p);
@@ -185,14 +347,29 @@ export default {
       }
       loading.value = true;
       error.value = "";
+      feedbackGiven.value = {};
+      agentStep.value = "Przygotowanie analizy…";
       try {
-        const data = await getAiInsights(filename.value);
-        suggestions.value = data.suggestions || [];
-        meta.value = {
-          provider: data.meta?.provider || "",
-          productCount: data.meta?.productCount ?? 0,
-          emptyDataset: Boolean(data.meta?.emptyDataset),
-        };
+        const { sessionId: sid } = await runAiInsightsJob(
+          filename.value,
+          userGuidelines.value
+        );
+        sessionId.value = sid;
+        let finished = false;
+        for (let i = 0; i < 150 && !finished; i++) {
+          await sleep(800);
+          const job = await pollAiInsightsJob(sid);
+          agentStep.value = job.current_step || agentStep.value;
+          if (job.status === "done" && job.result) {
+            applyInsightsData(job.result);
+            finished = true;
+          } else if (job.status === "error") {
+            throw new Error(job.error || "Błąd agenta AI");
+          }
+        }
+        if (!finished) {
+          throw new Error("Przekroczono czas oczekiwania na agenta (timeout)");
+        }
       } catch (e) {
         const status = e?.response?.status;
         const body = e?.response?.data;
@@ -207,6 +384,8 @@ export default {
         }
         error.value = base;
         suggestions.value = [];
+        reactTrace.value = [];
+        analystFacts.value = null;
         meta.value = { provider: "", productCount: 0, emptyDataset: false };
       } finally {
         loading.value = false;
@@ -214,26 +393,64 @@ export default {
     };
 
     watch(filename, (name) => {
-      if (name) loadInsights();
-      else {
+      if (!name) {
         suggestions.value = [];
+        reactTrace.value = [];
+        analystFacts.value = null;
         meta.value = { provider: "", productCount: 0, emptyDataset: false };
         error.value = "";
+        userGuidelines.value = "";
       }
     });
 
-    onMounted(() => {
-      if (filename.value) loadInsights();
-    });
+    const submitFeedback = async (index, verdict, item) => {
+      if (!sessionId.value) return;
+      try {
+        await postSuggestionFeedback({
+          sessionId: sessionId.value,
+          suggestionIndex: index,
+          verdict,
+          title: item.title,
+          description: item.description,
+          filename: filename.value || undefined,
+        });
+        feedbackGiven.value = { ...feedbackGiven.value, [index]: verdict };
+        ElMessage.success(verdict === "approve" ? "Sugestia zatwierdzona" : "Sugestia odrzucona");
+      } catch {
+        ElMessage.error("Nie udało się zapisać feedbacku");
+      }
+    };
+
+    const matchedAnomalies = (item) => {
+      const anomalies = analystFacts.value?.anomalies || [];
+      if (!anomalies.length) return [];
+      const text = `${item.title} ${item.description}`.toLowerCase();
+      return anomalies.filter((a) => {
+        const words = String(a).toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+        return words.some((w) => text.includes(w)) || text.includes(String(a).toLowerCase().slice(0, 12));
+      }).slice(0, 2);
+    };
 
     return {
       filename,
       loading,
       error,
       suggestions,
+      reactTrace,
+      analystFacts,
+      meta,
+      traceDialogOpen,
+      hasTrace,
       metaLine,
       showEmptyDataState,
       loadInsights,
+      agentStep,
+      sessionId,
+      feedbackGiven,
+      userGuidelines,
+      judgeItemFor,
+      submitFeedback,
+      matchedAnomalies,
       priorityLabel,
       priorityBadgeClass,
       priorityBorderClass,

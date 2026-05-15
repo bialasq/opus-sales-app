@@ -33,3 +33,7 @@ Thumbs.db
 
 # Artefakty / cache
 frontend/node_modules/.cache/
+
+# Trace logi agentów AI (lokalnie)
+backend/logs/traces/*
+!backend/logs/traces/.gitkeep

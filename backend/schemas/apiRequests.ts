@@ -58,17 +58,53 @@ export const aiAgentTypeSchema = z.enum([
 export const aiInsightsBodySchema = z.object({
   data: z.unknown(),
   agentType: aiAgentTypeSchema,
+  /** Opcjonalnie: plik w uploads/ — agent używa function calling zamiast pełnego JSON */
+  filename: z.string().min(1).optional(),
 });
 
 export const visitPlanBodySchema = z.object({
   profiles: z.record(z.string(), z.any()),
 });
 
+const userInstructionsField = z
+  .string()
+  .max(2000, "Wytyczne AI: maks. 2000 znaków")
+  .optional();
+
 export const aiInsightsQuerySchema = z.object({
   filename: z.preprocess(
     (v) => (Array.isArray(v) ? v[0] : v),
     z.string().min(1)
   ),
+  userInstructions: z.preprocess(
+    (v) => (Array.isArray(v) ? v[0] : v),
+    userInstructionsField
+  ),
 });
 
 export type AiInsightsQuery = z.infer<typeof aiInsightsQuerySchema>;
+
+export const aiInsightsRunBodySchema = z.object({
+  filename: z.string().min(1),
+  userInstructions: userInstructionsField,
+});
+
+export const aiInsightsJobParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+});
+
+export const planRouteBodySchema = z.object({
+  filename: z.string().min(1, "filename jest wymagany"),
+  userInstructions: userInstructionsField,
+});
+
+export type PlanRouteBody = z.infer<typeof planRouteBodySchema>;
+
+export const suggestionFeedbackBodySchema = z.object({
+  sessionId: z.string().uuid(),
+  suggestionIndex: z.number().int().min(0),
+  verdict: z.enum(["approve", "reject"]),
+  title: z.string().min(1),
+  description: z.string().min(1),
+  filename: z.string().min(1).optional(),
+});

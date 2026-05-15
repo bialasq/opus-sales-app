@@ -8,7 +8,9 @@
     "dev": "nodemon --exec tsx server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "npm run typecheck",
-    "generate-test-data": "node utils/generateTestData.js"
+    "generate-test-data": "node utils/generateTestData.js",
+    "benchmark": "tsx scripts/benchmark.ts",
+    "test:agent": "tsx scripts/agentUnitTests.ts"
   },
   "dependencies": {
     "axios": "^1.16.1",

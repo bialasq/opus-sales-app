@@ -71,7 +71,7 @@ Szczegóły portów / proxy są opisane w `docker-compose.yml` i w `frontend/.en
 | `backend/` | `npm run dev` | API z autorestartem (nodemon) |
 | `backend/` | `npm run start` | API „na produkcyjnie”, bez watchera |
 | `backend/` | `npm run typecheck` | TypeScript bez emit |
-| `backend/` | `npm run generate-test-data` | Tworzy `backend/dane_testowe.xlsx` (nie trzymamy go w repo — wygeneruj lokalnie) |
+| `backend/` | `npm run generate-test-data` | Tworzy `backend/dane_testowe.xlsx` — wizyty/sprzedaż z woj. warmińsko-mazurskiego (baza Olsztyn; wygeneruj lokalnie) |
 | `frontend/` | `npm run dev` | Dev server + HMR |
 | `frontend/` | `npm run build` | Produkcja (typecheck + webpack) |
 | `frontend/` | `npm run typecheck` | TS dla frontu + alias `@shared` |
@@ -88,6 +88,67 @@ docker-compose.yml
 ```
 
 Typy współdzielone: **`backend/shared/api-types.ts`** — frontend łączy je przez alias z `vue.config.js` (`@shared`).
+
+---
+
+## Agentic Workflow Debugging
+
+Pipeline AI: **Analityk** (fakty) → **Strateg** (ReAct + narzędzia) → **eval** (grounding) → odpowiedź API.
+
+### Logi trace (backend)
+
+Każde wywołanie `GET /api/ai/insights?filename=...` zapisuje JSON w:
+
+`backend/logs/traces/<ISO-timestamp>_<sessionID>.json`
+
+Przykładowe pola:
+
+| Pole | Znaczenie |
+|------|-----------|
+| `sessionID` | UUID sesji (to samo w `meta.sessionId` w API) |
+| `full_trace` | Kroki ReAct: `thought`, `action`, `observation` |
+| `analyst_facts` | Fakty i `anomalies` z kroku Analityka |
+| `total_tokens` / `cost_usd` / `latency_ms` | Observability (szacunek kosztu z `aiLogger.ts`) |
+| `eval_summary` | Liczba sugestii zweryfikowanych vs `potential_hallucination` |
+| `prompt_version` | np. `agent_v1` — patrz `backend/prompts/agent_v1.ts` |
+
+**Jak czytać log:** otwórz plik po odświeżeniu sugestii na dashboardzie; porównaj `full_trace` z tym, co widzisz w UI („Proces myślowy AI”). Jeśli `potential_hallucination` > 0, sprawdź czy nazwy produktów w sugestii są w `analyst_facts`.
+
+### Wersjonowanie promptów
+
+Instrukcje systemowe Analityka i Stratega: **`backend/prompts/agent_v1.ts`**. Przy zmianie zachowania modelu skopiuj plik do `agent_v2.ts`, podnieś `PROMPT_VERSION` i podłącz w `agentOrchestrator.ts`.
+
+### Dodawanie narzędzia (function calling)
+
+1. W **`backend/services/aiAgentTools.ts`** dodaj wpis do tablicy `SALES_AGENT_TOOLS`:
+   - `name`, `description`, `parameters` (JSON Schema),
+   - `execute(ctx, args)` — logika na `SalesWorkbookContext`.
+2. Model (Strateg) sam zdecyduje, kiedy wywołać narzędzie — nie trzeba zmieniać promptu, o ile opis jest jasny.
+3. Uruchom `npm run typecheck` w `backend/` i przetestuj trace w `backend/logs/traces/`.
+
+Zmienne opcjonalne w `backend/.env`: `AI_ANALYST_MODEL`, `AI_STRATEGIST_MODEL` (patrz `.env.example`).
+
+### Production-grade (guardrails, cache, feedback)
+
+| Mechanizm | Opis |
+|-----------|------|
+| **Guardrails** | `MAX_ITERATIONS` (dom. 5), `SESSION_TOKEN_LIMIT` (dom. 28k) — przy przekroczeniu `meta.partial: true` i częściowe sugestie |
+| **Rate limit** | Linear backoff 1s/2s/3s przy HTTP 429 (OpenAI / Anthropic) |
+| **Cache** | Ten sam plik + hash → wynik z pamięci przez 10 min (`meta.from_cache: true`) |
+| **Polling** | `POST /api/ai/insights/run` → `GET /api/ai/insights/job/:sessionId` (`current_step`) |
+| **RLHF** | `POST /api/ai/insights/feedback` → `backend/logs/traces/<sessionId>-feedback.jsonl` |
+| **Prompty v2** | `AGENT_PROMPT_VERSION=agent_v2` (domyślnie) — ton sklepowy w `backend/prompts/agent_v2.ts` |
+
+Nowe narzędzie: `compareWithPreviousPeriod()` — porównanie z poprzednim plikiem w `uploads/`.
+
+### Pętla uczenia (RLHF + knowledge)
+
+- **Vector-less RAG**: `knowledgeService.ts` czyta `logs/traces/*-feedback.jsonl` (zatwierdzenia = `approve`) i wstrzykuje 2–3 przykłady do promptu Stratega.
+- **Auto-korekta**: odrzucenia (`reject`) dla tego samego pliku trafiają do instrukcji „nie powtarzaj tych pomysłów”.
+- **Prognoza**: narzędzie `predictFutureSales()` — regresja liniowa, horyzont 30 dni.
+- **Dashboard → AI Performance**: koszt, skuteczność %, halucynacje, przycisk „Wyczyść cache AI”.
+- **Benchmark**: `cd backend && npm run benchmark -- plik.xlsx`
+- **Docker**: wolumen `./backend/logs/traces` — feedback przetrwa restart kontenera.
 
 ---
 

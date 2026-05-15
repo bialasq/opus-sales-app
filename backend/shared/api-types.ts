@@ -11,16 +11,137 @@ export interface AISuggestion {
   priority: AiInsightPriority;
 }
 
+/** Wynik ewaluacji grounding (agentEval) */
+export interface AISuggestionEval {
+  verified: boolean;
+  evalFlags?: string[];
+  potential_hallucination?: boolean;
+  matchedFact?: string;
+}
+
+export interface EvaluatedAISuggestion extends AISuggestion {
+  eval?: AISuggestionEval;
+}
+
+/** Krok ReAct: Thought → Action → Observation (wynik narzędzia) */
+export interface ReActTraceStep {
+  thought: string;
+  action: string;
+  actionInput?: Record<string, unknown>;
+  observation?: string;
+}
+
+/** Fakty z kroku 1 (Analityk) — bez rekomendacji biznesowych */
+export interface AnalystFactsPayload {
+  summary: string;
+  anomalies: string[];
+  metrics?: Record<string, unknown>;
+  toolSnapshots?: Record<string, unknown>;
+}
+
+export interface AiInsightsEvalSummary {
+  total: number;
+  verified: number;
+  potential_hallucination: number;
+}
+
+/** Ocena LLM-as-a-Judge dla pojedynczej sugestii */
+export interface JudgeReviewItem {
+  index: number;
+  title: string;
+  consistency: "pass" | "warn" | "fail";
+  risk: "low" | "medium" | "high";
+  consistencyNote: string;
+  riskNote: string;
+  approved: boolean;
+}
+
+export interface JudgeReviewResult {
+  model: string;
+  reviewedAt: string;
+  overall_pass: boolean;
+  items: JudgeReviewItem[];
+  tokens_used?: number;
+}
+
+export type StrategistExpertPersona =
+  | "store_manager"
+  | "supply_chain_manager"
+  | "financial_controller"
+  | "regional_logistics_manager";
+
 export interface AiInsightsMeta {
   provider: string;
   productCount: number;
   /** Brak wierszy sprzedaży / produktów do analizy rotacji */
   emptyDataset?: boolean;
+  orchestration?: string;
+  analystModel?: string;
+  strategistModel?: string;
+  strategistPersona?: StrategistExpertPersona;
+  userInstructionsApplied?: boolean;
+  promptVersion?: string;
+  sessionId?: string;
+  latency_ms?: number;
+  total_tokens?: number;
+  cost_usd?: number;
+  evalSummary?: AiInsightsEvalSummary;
+  judge_review?: JudgeReviewResult | null;
+  from_cache?: boolean;
+  cacheAge_ms?: number;
+  partial?: boolean;
+  partialReason?: "max_iterations" | "token_limit";
+  guardrailMessage?: string;
+  current_step?: string;
+}
+
+/** Status zadania agentowego (polling) */
+export interface AgentInsightsJobStatus {
+  sessionId: string;
+  status: "running" | "done" | "error";
+  current_step: string;
+  result?: AiInsightsResponse;
+  error?: string;
+}
+
+export type SuggestionFeedbackVerdict = "approve" | "reject";
+
+export interface SuggestionFeedbackBody {
+  sessionId: string;
+  suggestionIndex: number;
+  verdict: SuggestionFeedbackVerdict;
+  title: string;
+  description: string;
+  filename?: string;
+}
+
+/** GET /api/ai/performance — statystyki agenta */
+export interface AiPerformanceStats {
+  totalRuns: number;
+  avgCostUsd: number;
+  avgLatencyMs: number;
+  totalTokens: number;
+  approvalRatePercent: number | null;
+  totalFeedback: number;
+  approvedCount: number;
+  rejectedCount: number;
+  hallucinationCount: number;
+  hallucinationRatePercent: number | null;
+  cacheEntries: number;
+  recentRuns: {
+    timestamp: string;
+    filename?: string;
+    cost_usd: number;
+    latency_ms: number;
+    from_cache?: boolean;
+  }[];
 }
 
 export interface AiInsightsResponse {
-  suggestions: AISuggestion[];
+  suggestions: EvaluatedAISuggestion[];
   meta: AiInsightsMeta;
+  reactTrace?: ReActTraceStep[];
+  analystFacts?: AnalystFactsPayload;
 }
 
 /** Wiersz metryk rotacji używany przez moduł AI (buildProductRotationMetrics) */
@@ -132,6 +253,8 @@ export interface AiInsightsLegacyResponse {
 export interface AnalyticsAgentInsightsMeta {
   provider: string;
   model?: string;
+  orchestration?: string;
+  toolsUsed?: string[];
 }
 
 export interface AnalyticsAgentInsightsResponse {
@@ -171,5 +294,56 @@ export interface ComprehensiveExpertAiResponse {
   meta: {
     provider: string;
     model?: string;
+    llmAvailable?: boolean;
+    setupHint?: string;
   };
+}
+
+/** Przystanek trasy dnia (Sales Route Optimizer) */
+export interface RoutePlanStop {
+  order: number;
+  city: string;
+  clientName: string;
+  visitGoal: string;
+  driveTimeHoursFromPrevious: number;
+  driveTimeLabel?: string;
+  visitDurationMinutes: number;
+  /** Szac. przyjazd przy starcie dnia o 08:00 (HH:MM) */
+  arrivalTime?: string;
+  /** Dystans od poprzedniego przystanku (km) */
+  distanceKmFromPrevious?: number;
+  /** Dojazd po 16:00 — poza preferowanym oknem B2B */
+  afterBusinessHours?: boolean;
+  lat?: number;
+  lng?: number;
+}
+
+export interface RoutePlanPayload {
+  baseCity: string;
+  cluster?: string;
+  summary?: string;
+  stops: RoutePlanStop[];
+}
+
+export interface RoutePlanMeta {
+  provider: string;
+  model?: string;
+  orchestration?: string;
+  persona?: string;
+  route_plan?: RoutePlanPayload;
+  /** Ostrzeżenia logistyczne (godziny pracy, skrócenie trasy, powrót do bazy) */
+  warnings?: string[];
+  /** Dystans pełnej pętli Olsztyn → … → Olsztyn (km) */
+  fullLoopKm?: number;
+}
+
+/** POST /api/ai/plan-route */
+export interface RoutePlanResponse {
+  route_plan: RoutePlanPayload;
+  total_driving_time: number;
+  total_visit_time_hours?: number;
+  estimated_fuel_cost: number;
+  meta: RoutePlanMeta;
+  reactTrace?: ReActTraceStep[];
+  guardrail_warnings?: string[];
 }

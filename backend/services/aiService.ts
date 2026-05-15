@@ -1,270 +1,675 @@
-import path from "path";
-import OpenAI from "openai";
 import type {
+
   AISuggestion,
+
   AiInsightsResponse,
+
   ProductRotationMetricRow,
+
+  SuggestionFeedbackBody,
+
 } from "../shared/api-types";
+
+import { evaluateAllSuggestions } from "./agentEval";
+
+import { SalesWorkbookContext } from "./aiAgentTools";
+
+import { buildCacheKey, getCachedInsights, setCachedInsights } from "./agentCache";
+
+import {
+
+  completeJob,
+
+  createJob,
+
+  failJob,
+
+  getJob,
+
+  updateJobStep,
+
+} from "./agentJobStore";
+
+import {
+
+  createSessionId,
+
+  logAgentTraceAsync,
+
+  logSuggestionFeedbackAsync,
+
+} from "./aiLogger";
+
+import {
+
+  runAgenticInsightsWorkflow,
+
+  type AgenticWorkflowOptions,
+
+  type WorkflowHooks,
+
+} from "./agentOrchestrator";
+
+import { createLogger } from "./appLogger";
+
+import { runJudgeReview } from "./judgeService";
+
 import { chooseProvider } from "./llmInvoke";
+
+
+
+const log = createLogger("aiService");
+
+
 
 export { chooseProvider } from "./llmInvoke";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const excelService = require("./excelService") as {
-  readFile: (filePath: string) => Record<string, Record<string, unknown>[]>;
-  analyzeSales: (salesData: Record<string, unknown>[]) => {
-    salesByProduct: Record<
-      string,
-      { revenue: number; quantity: number; category?: string; lastSaleDate?: Date }
-    >;
-  };
+export {
+
+  buildProductRotationMetrics,
+
+  extractSalesRows,
+
+  readWorkbookFromUploads,
+
+  analyzeSalesFromFile,
+
+} from "./salesMetrics";
+
+
+
+export type GetAiInsightsOptions = {
+
+  sessionId?: string;
+
+  hooks?: WorkflowHooks;
+
+  skipCache?: boolean;
+
+  userInstructions?: string;
+
 };
 
-function extractSalesRows(
-  excelData: Record<string, Record<string, unknown>[]>
-): Record<string, unknown>[] {
-  if (excelData["Sprzedaż"]?.length) return excelData["Sprzedaż"];
-  if (excelData["Sprzedaz"]?.length) return excelData["Sprzedaz"];
-  for (const key of Object.keys(excelData)) {
-    const rows = excelData[key];
-    if (!Array.isArray(rows) || rows.length === 0) continue;
-    const first = rows[0] as Record<string, unknown>;
-    if (
-      "Nazwa_Produktu" in first ||
-      "Produkt" in first ||
-      "Product" in first
-    ) {
-      return rows;
-    }
-  }
-  return [];
-}
 
-/**
- * Buduje metryki produktów z danych sprzedaży (jak w analytics: arkusz Sprzedaż + analyzeSales).
- * rotationRate ∈ [0,1]: wyżej = lepsza rotacja / popyt względem reszty asortymentu.
- */
-export function buildProductRotationMetrics(
-  filename: string
-): ProductRotationMetricRow[] {
-  const filePath = path.join(__dirname, "..", "uploads", filename);
-  const excelData = excelService.readFile(filePath);
-  const rows = extractSalesRows(excelData);
-  if (!rows.length) return [];
-
-  const sales = excelService.analyzeSales(rows as Record<string, unknown>[]);
-  const byProduct = sales.salesByProduct || {};
-  const entries = Object.entries(byProduct);
-  if (!entries.length) return [];
-
-  const maxRev = Math.max(...entries.map(([, v]) => v.revenue), 1e-9);
-  const maxQty = Math.max(...entries.map(([, v]) => v.quantity), 1e-9);
-
-  return entries.map(([name, v]) => {
-    const revNorm = v.revenue / maxRev;
-    const qtyNorm = v.quantity / maxQty;
-    const rotationRate = Number(((revNorm + qtyNorm) / 2).toFixed(4));
-    return {
-      id: name,
-      name,
-      category: v.category || "Inne",
-      rotationRate,
-      totalQuantity: v.quantity,
-      totalValue: v.revenue,
-    };
-  });
-}
-
-const SYSTEM_PROMPT = `Jesteś analitykiem sprzedaży B2B. Dostajesz JSON z listą produktów: name, category, rotationRate (0–1, wyżej = lepsza rotacja względem asortymentu), totalQuantity, totalValue (PLN).
-Zadanie:
-1) Wskaż produkty wymagające NATYCHMIASTOWEJ PROMOCJI (niska rotacja, ryzyko zalegania, słaby obrót).
-2) Wskaż produkty do DOMÓWIENIA / zwiększenia stanu (wysoka rotacja, ryzyko braków, silny popyt).
-Zwróć WYŁĄCZNIE poprawny JSON w formacie:
-{"suggestions":[{"title":"string","description":"string","priority":"high"|"medium"|"low"}]}
-— 4–8 sugestii, po polsku, konkretne nazwy produktów w tytule lub opisie. Priorytet: high = pilne, medium = ważne, low = warto rozważyć.`;
-
-function parseInsightsJson(raw: string): AISuggestion[] {
-  const cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
-  const parsed = JSON.parse(cleaned) as {
-    suggestions?: Partial<AISuggestion>[];
-  };
-  const list = parsed.suggestions;
-  if (!Array.isArray(list)) return [];
-  return list
-    .filter(
-      (s): s is AISuggestion =>
-        typeof s?.title === "string" &&
-        typeof s?.description === "string" &&
-        (s.priority === "high" || s.priority === "medium" || s.priority === "low")
-    )
-    .slice(0, 12);
-}
 
 function fallbackInsights(
+
   products: ProductRotationMetricRow[]
+
 ): AISuggestion[] {
+
   const sortedLow = [...products].sort((a, b) => a.rotationRate - b.rotationRate);
+
   const sortedHigh = [...products].sort((a, b) => b.rotationRate - a.rotationRate);
+
   const out: AISuggestion[] = [];
 
+
+
   for (const p of sortedLow.slice(0, 3)) {
+
     if (p.rotationRate >= 0.4) continue;
+
     out.push({
-      title: `Promocja: ${p.name}`,
-      description: `Niska rotacja (${(p.rotationRate * 100).toFixed(1)}%) i wartość ${p.totalValue.toFixed(0)} PLN — rozważ rabat, bundling lub wycofanie z magazynu.`,
+
+      title: `Przecena: ${p.name}`,
+
+      description: `Niska rotacja (${(p.rotationRate * 100).toFixed(1)}%) — rozważ rabat -20% lub przesunięcie na magazyn.`,
+
       priority: p.rotationRate < 0.25 ? "high" : "medium",
+
     });
+
   }
+
+
 
   for (const p of sortedHigh.slice(0, 3)) {
+
     if (p.rotationRate <= 0.55) continue;
+
     out.push({
-      title: `Domówienie: ${p.name}`,
-      description: `Wysoka rotacja (${(p.rotationRate * 100).toFixed(1)}%), ilość ${p.totalQuantity} szt. — zwiększ zapas, aby uniknąć braków.`,
+
+      title: `Domów: ${p.name}`,
+
+      description: `Wysoka rotacja — domów ${Math.max(20, Math.round(p.totalQuantity * 0.3))} szt.`,
+
       priority: p.rotationRate > 0.8 ? "high" : "medium",
+
     });
+
   }
+
+
 
   if (out.length === 0 && products.length > 0) {
+
     out.push({
+
       title: "Brak wyraźnych priorytetów",
-      description:
-        "Rotacja produktów jest zbliżona do średniej — rozważ dłuższy horyzont danych lub dodatkowe segmenty.",
+
+      description: "Rotacja zbliżona do średniej — wgraj dłuższy okres danych.",
+
       priority: "low",
+
     });
+
   }
+
   return out.slice(0, 8);
+
 }
 
-async function callOpenAiInsights(userPayload: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("MISSING_OPENAI");
-  const client = new OpenAI({ apiKey });
-  const model = process.env.AI_MODEL || "gpt-4o";
-  const res = await client.chat.completions.create({
-    model,
-    temperature: 0.25,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: `Dane produktów (JSON):\n${userPayload}`,
-      },
-    ],
-  });
-  const text = res.choices[0]?.message?.content;
-  if (!text) throw new Error("Empty OpenAI response");
-  return text;
-}
 
-async function callAnthropicInsights(userPayload: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
-  const model =
-    process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Dane produktów (JSON):\n${userPayload}`,
-        },
-      ],
-    }),
-  });
+function buildMetaFromWorkflow(
 
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Anthropic HTTP ${res.status}: ${errText.slice(0, 500)}`);
-  }
+  result: Awaited<ReturnType<typeof runAgenticInsightsWorkflow>>,
 
-  const body = (await res.json()) as {
-    content?: { type: string; text?: string }[];
+  evalSummary: { total: number; verified: number; potential_hallucination: number },
+
+  extras?: Partial<AiInsightsResponse["meta"]>
+
+): AiInsightsResponse["meta"] {
+
+  return {
+
+    provider: extras?.provider ?? result.meta.provider,
+
+    productCount: result.meta.productCount,
+
+    orchestration: result.meta.orchestration,
+
+    analystModel: result.meta.analystModel,
+
+    strategistModel: result.meta.strategistModel,
+
+    strategistPersona: result.meta.strategistPersona,
+
+    userInstructionsApplied: result.meta.userInstructionsApplied,
+
+    promptVersion: result.promptVersion,
+
+    sessionId: result.sessionId,
+
+    latency_ms: result.latency_ms,
+
+    total_tokens: result.total_tokens,
+
+    cost_usd: result.cost_usd,
+
+    evalSummary,
+
+    judge_review: extras?.judge_review,
+
+    partial: result.meta.partial,
+
+    partialReason: result.meta.partialReason,
+
+    guardrailMessage: result.meta.guardrailMessage,
+
+    ...extras,
+
   };
-  const text = body.content?.find((b) => b.type === "text")?.text;
-  if (!text) throw new Error("Empty Anthropic response");
-  return text;
+
 }
+
+
+
+async function finalizeResponse(
+
+  filename: string,
+
+  sessionId: string,
+
+  products: ProductRotationMetricRow[],
+
+  result: Awaited<ReturnType<typeof runAgenticInsightsWorkflow>>,
+
+  providerOverride?: string
+
+): Promise<AiInsightsResponse> {
+
+  const catalogNames = products.map((p) => p.name);
+
+  const rawSuggestions = result.suggestions.length
+
+    ? result.suggestions
+
+    : fallbackInsights(products);
+
+
+
+  const { suggestions, summary } = evaluateAllSuggestions(
+
+    result.analystFacts ?? undefined,
+
+    rawSuggestions,
+
+    catalogNames
+
+  );
+
+
+
+  const judge_review =
+
+    result.analystFacts && suggestions.length
+
+      ? await runJudgeReview(result.analystFacts, suggestions)
+
+      : null;
+
+
+
+  logAgentTraceAsync({
+
+    sessionID: result.sessionId,
+
+    workflow: "getAiInsightsForFile",
+
+    filename,
+
+    models: {
+
+      analyst: result.meta.analystModel,
+
+      strategist: result.meta.strategistModel,
+
+    },
+
+    full_trace: result.reactTrace,
+
+    analyst_facts: result.analystFacts,
+
+    suggestions_count: suggestions.length,
+
+    total_tokens: result.total_tokens,
+
+    cost_usd: result.cost_usd,
+
+    latency_ms: result.latency_ms,
+
+    eval_summary: {
+
+      verified: summary.verified,
+
+      potential_hallucination: summary.potential_hallucination,
+
+    },
+
+    meta: {
+
+      ...result.meta,
+
+      partial: result.meta.partial,
+
+      judge_review: judge_review ?? undefined,
+
+    },
+
+  });
+
+
+
+  return {
+
+    suggestions,
+
+    meta: buildMetaFromWorkflow(
+
+      result,
+
+      summary,
+
+      {
+
+        ...(providerOverride ? { provider: providerOverride } : {}),
+
+        judge_review,
+
+      }
+
+    ),
+
+    reactTrace: result.reactTrace,
+
+    analystFacts: result.analystFacts ?? undefined,
+
+  };
+
+}
+
+
 
 /**
- * Zwraca sugestie AI (promocja vs domówienie) na podstawie danych sprzedażowych z pliku.
+
+ * Agentic workflow z cache, guardrails i opcjonalnym śledzeniem kroków.
+
  */
+
 export async function getAiInsightsForFile(
-  filename: string
+
+  filename: string,
+
+  options: GetAiInsightsOptions = {}
+
 ): Promise<AiInsightsResponse> {
-  const products = buildProductRotationMetrics(filename);
-  const top = [...products]
-    .sort((a, b) => b.totalValue - a.totalValue)
-    .slice(0, 45);
-  const payload = JSON.stringify(top);
+
+  const sessionId = options.sessionId ?? createSessionId();
+
+  const userInstructions = options.userInstructions?.trim() || undefined;
+
+  const cacheKey = buildCacheKey(filename, {
+
+    userInstructions: userInstructions ?? "",
+
+  });
+
+
+
+  if (!options.skipCache) {
+
+    const cached = getCachedInsights(cacheKey);
+
+    if (cached) {
+
+      logAgentTraceAsync({
+
+        sessionID: cached.meta.sessionId ?? sessionId,
+
+        workflow: "getAiInsightsForFile",
+
+        filename,
+
+        full_trace: cached.reactTrace ?? [],
+
+        analyst_facts: cached.analystFacts,
+
+        suggestions_count: cached.suggestions.length,
+
+        total_tokens: cached.meta.total_tokens ?? 0,
+
+        cost_usd: cached.meta.cost_usd ?? 0,
+
+        latency_ms: 0,
+
+        meta: { from_cache: true, cache_hit: true },
+
+      });
+
+      return cached;
+
+    }
+
+  }
+
+
+
+  const ctx = new SalesWorkbookContext(filename);
+
+  const products = ctx.getProducts();
 
   const provider = chooseProvider();
 
-  if (top.length === 0) {
+
+
+  if (products.length === 0) {
+
     return {
+
       suggestions: [],
+
       meta: {
+
         provider: provider === "none" ? "fallback" : provider,
+
         productCount: 0,
+
         emptyDataset: true,
+
+        sessionId,
+
       },
+
     };
+
   }
+
+
 
   if (provider === "none") {
+
+    const catalogNames = products.map((p) => p.name);
+
+    const { suggestions, summary } = evaluateAllSuggestions(
+
+      undefined,
+
+      fallbackInsights(products),
+
+      catalogNames
+
+    );
+
     return {
-      suggestions: fallbackInsights(products),
-      meta: { provider: "fallback", productCount: products.length },
+
+      suggestions,
+
+      meta: {
+
+        provider: "fallback",
+
+        productCount: products.length,
+
+        orchestration: "rules-only",
+
+        sessionId,
+
+        evalSummary: summary,
+
+      },
+
     };
+
   }
+
+
+
+  const workflowOptions: AgenticWorkflowOptions = {
+
+    hooks: options.hooks,
+
+    userInstructions,
+
+  };
+
+
 
   try {
-    const raw =
-      provider === "anthropic"
-        ? await callAnthropicInsights(payload)
-        : await callOpenAiInsights(payload);
-    let suggestions: AISuggestion[];
-    try {
-      suggestions = parseInsightsJson(raw);
-    } catch {
-      suggestions = [];
-    }
-    if (!suggestions.length) {
-      return {
-        suggestions: fallbackInsights(products),
-        meta: { provider: `${provider}-parsed-empty`, productCount: products.length },
-      };
-    }
-    return {
-      suggestions,
-      meta: { provider, productCount: products.length },
-    };
+
+    const result = await runAgenticInsightsWorkflow(
+
+      ctx,
+
+      products.length,
+
+      sessionId,
+
+      workflowOptions
+
+    );
+
+    const response = await finalizeResponse(
+
+      filename,
+
+      sessionId,
+
+      products,
+
+      result,
+
+      result.suggestions.length ? undefined : `${result.meta.provider}-parsed-empty`
+
+    );
+
+    setCachedInsights(cacheKey, response);
+
+    return response;
+
   } catch (e) {
-    console.error("[aiService] LLM error:", e);
+
+    log.error("Agentic workflow error", e);
+
+    const catalogNames = products.map((p) => p.name);
+
+    const { suggestions, summary } = evaluateAllSuggestions(
+
+      undefined,
+
+      fallbackInsights(products),
+
+      catalogNames
+
+    );
+
     return {
-      suggestions: fallbackInsights(products),
+
+      suggestions,
+
       meta: {
+
         provider: `${provider}-error-fallback`,
+
         productCount: products.length,
+
+        orchestration: "analyst-react-tools-strategist-failed",
+
+        sessionId,
+
+        evalSummary: summary,
+
       },
+
     };
+
   }
+
 }
 
+
+
+/** Uruchamia analizę w tle — frontend polluje status */
+
+export function startAiInsightsJob(
+
+  filename: string,
+
+  userInstructions?: string
+
+): string {
+
+  const sessionId = createSessionId();
+
+  const trimmed = userInstructions?.trim() || undefined;
+
+  createJob(sessionId, filename, trimmed);
+
+
+
+  void (async () => {
+
+    try {
+
+      const response = await getAiInsightsForFile(filename, {
+
+        sessionId,
+
+        skipCache: false,
+
+        userInstructions: trimmed,
+
+        hooks: {
+
+          onStep: (step) => updateJobStep(sessionId, step),
+
+        },
+
+      });
+
+      completeJob(sessionId, response);
+
+    } catch (e) {
+
+      const msg = e instanceof Error ? e.message : String(e);
+
+      failJob(sessionId, msg);
+
+    }
+
+  })();
+
+
+
+  return sessionId;
+
+}
+
+
+
+export function getAiInsightsJobStatus(sessionId: string) {
+
+  const job = getJob(sessionId);
+
+  if (!job) return null;
+
+  return {
+
+    sessionId: job.sessionId,
+
+    status: job.status,
+
+    current_step: job.current_step,
+
+    result: job.result,
+
+    error: job.error,
+
+  };
+
+}
+
+
+
+export function recordSuggestionFeedback(feedback: SuggestionFeedbackBody): string {
+
+  logSuggestionFeedbackAsync(feedback);
+
+  const safeSession = feedback.sessionId.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 36);
+
+  return `traces/${safeSession}-feedback.jsonl`;
+
+}
+
+
+
 export type {
+
   AISuggestion as AiInsight,
+
   AiInsightPriority,
+
   ProductRotationMetricRow as ProductRotationRow,
+
   AiInsightsResponse,
+
+  ReActTraceStep,
+
+  AnalystFactsPayload,
+
+  EvaluatedAISuggestion,
+
 } from "../shared/api-types";
+
+

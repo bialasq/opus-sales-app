@@ -3,21 +3,34 @@
     <el-alert
       v-if="metaLine"
       :title="metaLine"
-      type="info"
+      :type="metaAlertType"
       :closable="false"
       show-icon
       class="mb-4"
     />
 
-    <el-button
-      type="primary"
-      :loading="loading"
-      :disabled="!analysisData"
-      @click="runExpert"
-    >
-      <el-icon><Cpu /></el-icon>
-      Generuj analizę ekspercką AI (sprzedaż · finanse · marketing)
-    </el-button>
+    <div class="flex flex-wrap items-center gap-3">
+      <el-button
+        type="primary"
+        :loading="loading"
+        :disabled="!analysisData"
+        @click="runExpert"
+      >
+        <el-icon><Cpu /></el-icon>
+        Generuj analizę ekspercką AI (sprzedaż · finanse · marketing)
+      </el-button>
+      <el-button
+        type="default"
+        plain
+        :loading="traceLoading"
+        :disabled="!currentFile"
+        @click="loadAgenticTrace"
+      >
+        <el-icon class="mr-1"><View /></el-icon>
+        Proces myślowy AI
+      </el-button>
+    </div>
+    <p v-if="traceLoading && agentStep" class="agent-step">{{ agentStep }}</p>
     <p class="hint">
       Wymaga ukończonej analizy kompleksowej. Z kluczem API (OpenAI / Anthropic) otrzymasz
       pełny raport; bez klucza — uproszczona analiza z danych i reguł.
@@ -53,16 +66,27 @@
         </el-tab-pane>
       </el-tabs>
     </template>
+
+    <AgenticTraceDialog
+      v-model="traceDialogOpen"
+      :trace="reactTrace"
+      :analyst-facts="analystFacts"
+      :meta="agenticMeta"
+    />
   </div>
 </template>
 
 <script>
 import { ref, computed, watch } from "vue";
+import { useStore } from "vuex";
 import { ElMessage } from "element-plus";
 import api from "@/services/api";
+import { pollAiInsightsJob, runAiInsightsJob } from "@/services/api";
+import AgenticTraceDialog from "@/components/shared/AgenticTraceDialog.vue";
 
 export default {
   name: "ExpertAiPanel",
+  components: { AgenticTraceDialog },
   props: {
     analysisData: {
       type: Object,
@@ -70,16 +94,46 @@ export default {
     },
   },
   setup(props) {
+    const store = useStore();
     const loading = ref(false);
     const expert = ref(null);
+    const reactTrace = ref([]);
+    const analystFacts = ref(null);
+    const agenticMeta = ref(null);
+    const traceDialogOpen = ref(false);
+    const traceLoading = ref(false);
+    const agentStep = ref("");
+
+    const currentFile = computed(() => store.state.currentFile || "");
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const hasAgenticTrace = computed(
+      () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0
+    );
+
+    const metaAlertType = computed(() => {
+      const m = expert.value?.meta;
+      if (m?.llmAvailable === false || m?.provider === "fallback") return "warning";
+      if (String(m?.provider || "").includes("fallback")) return "warning";
+      return "success";
+    });
 
     const metaLine = computed(() => {
       const m = expert.value?.meta;
       if (!m?.provider) return "";
+      if (m.setupHint && m.llmAvailable === false) {
+        return m.setupHint;
+      }
       const p = m.provider;
-      if (p === "fallback") return "Źródło: reguły + dane (brak klucza API lub błąd modelu).";
-      if (String(p).includes("fallback")) return `Źródło: tryb awaryjny (${p}).`;
-      return `Model: ${p}${m.model ? ` (${m.model})` : ""}`;
+      if (p === "fallback" || m.llmAvailable === false) {
+        return (
+          m.setupHint ||
+          "Tryb regułowy: brak klucza API. Ustaw OPENAI_API_KEY lub ANTHROPIC_API_KEY w backend/.env i zrestartuj backend."
+        );
+      }
+      if (String(p).includes("fallback")) {
+        return m.setupHint || `Tryb awaryjny (${p}) — sprawdź klucz API i model w .env.`;
+      }
+      return `Analiza LLM: ${p}${m.model ? ` · ${m.model}` : ""}`;
     });
 
     const tagType = (p) => {
@@ -108,8 +162,46 @@ export default {
       () => props.analysisData,
       () => {
         expert.value = null;
+        reactTrace.value = [];
+        analystFacts.value = null;
+        agenticMeta.value = null;
       }
     );
+
+    const loadAgenticTrace = async () => {
+      if (!currentFile.value) {
+        ElMessage.warning("Wgraj plik Excel, aby zobaczyć trace agenta.");
+        return;
+      }
+      traceLoading.value = true;
+      agentStep.value = "Przygotowanie analizy…";
+      try {
+        const { sessionId } = await runAiInsightsJob(currentFile.value);
+        let finished = false;
+        for (let i = 0; i < 120 && !finished; i++) {
+          await sleep(800);
+          const job = await pollAiInsightsJob(sessionId);
+          agentStep.value = job.current_step || agentStep.value;
+          if (job.status === "done" && job.result) {
+            reactTrace.value = job.result.reactTrace || [];
+            analystFacts.value = job.result.analystFacts || null;
+            agenticMeta.value = job.result.meta || null;
+            finished = true;
+          } else if (job.status === "error") {
+            throw new Error(job.error || "Błąd agenta");
+          }
+        }
+        if (!finished) throw new Error("Timeout agenta AI");
+        traceDialogOpen.value = true;
+      } catch (e) {
+        ElMessage.error(
+          e?.response?.data?.error || e?.message || "Nie udało się wczytać trace agenta."
+        );
+      } finally {
+        traceLoading.value = false;
+        agentStep.value = "";
+      }
+    };
 
     const runExpert = async () => {
       if (!props.analysisData) {
@@ -139,9 +231,19 @@ export default {
       loading,
       expert,
       metaLine,
+      metaAlertType,
       runExpert,
       tagType,
       formatBlock,
+      currentFile,
+      hasAgenticTrace,
+      loadAgenticTrace,
+      traceLoading,
+      agentStep,
+      traceDialogOpen,
+      reactTrace,
+      analystFacts,
+      agenticMeta,
     };
   },
 };
@@ -153,6 +255,12 @@ export default {
 }
 .mb-4 {
   margin-bottom: 16px;
+}
+.agent-step {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #6366f1;
+  font-weight: 500;
 }
 .hint {
   margin: 10px 0 0;

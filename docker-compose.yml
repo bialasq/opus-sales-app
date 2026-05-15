@@ -8,6 +8,7 @@ services:
     volumes:
       - ./backend:/app
       - backend_node_modules:/app/node_modules
+      - ./backend/logs/traces:/app/logs/traces
     env_file:
       - ./backend/.env
     environment:

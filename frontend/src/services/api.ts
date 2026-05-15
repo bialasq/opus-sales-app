@@ -1,9 +1,12 @@
 import axios, { type AxiosInstance, isAxiosError } from "axios";
 import { ElMessage } from "element-plus";
 import type {
+  AgentInsightsJobStatus,
+  AiPerformanceStats,
   AiInsightsLegacyResponse,
   AiInsightsResponse,
   AnalyticsSummary,
+  SuggestionFeedbackBody,
   CustomerProfilesResponse,
   PaymentOverdueRecord,
   ProductAnalysisResponse,
@@ -11,6 +14,7 @@ import type {
   TestDataInfoResponse,
   UploadResponse,
   VisitPlanResponse,
+  RoutePlanResponse,
 } from "@shared/api-types";
 
 /**
@@ -41,6 +45,9 @@ function getApiRoot(): string {
 }
 
 export const API_ROOT = getApiRoot();
+
+/** Długie wywołania agenta (ReAct + Judge) */
+export const AGENT_REQUEST_TIMEOUT_MS = 60_000;
 
 export function uploadActionUrl(): string {
   return `${API_ROOT}/upload`;
@@ -100,11 +107,59 @@ client.interceptors.response.use(
 );
 
 export async function getAiInsights(
-  filename: string
+  filename: string,
+  userInstructions?: string
 ): Promise<AiInsightsResponse> {
   const { data } = await client.get<AiInsightsResponse>("/ai/insights", {
-    params: { filename },
+    params: {
+      filename,
+      ...(userInstructions?.trim() ? { userInstructions: userInstructions.trim() } : {}),
+    },
+    timeout: AGENT_REQUEST_TIMEOUT_MS,
   });
+  return data;
+}
+
+export async function runAiInsightsJob(
+  filename: string,
+  userInstructions?: string
+): Promise<{ sessionId: string; status: string; current_step: string }> {
+  const trimmed = userInstructions?.trim();
+  const { data } = await client.post<{ sessionId: string; status: string; current_step: string }>(
+    "/ai/insights/run",
+    {
+      filename,
+      ...(trimmed ? { userInstructions: trimmed } : {}),
+    },
+    { timeout: AGENT_REQUEST_TIMEOUT_MS }
+  );
+  return data;
+}
+
+export async function pollAiInsightsJob(
+  sessionId: string
+): Promise<AgentInsightsJobStatus> {
+  const { data } = await client.get<AgentInsightsJobStatus>(
+    `/ai/insights/job/${sessionId}`,
+    { timeout: AGENT_REQUEST_TIMEOUT_MS }
+  );
+  return data;
+}
+
+export async function postSuggestionFeedback(
+  body: SuggestionFeedbackBody
+): Promise<{ ok: boolean }> {
+  const { data } = await client.post<{ ok: boolean }>("/ai/insights/feedback", body);
+  return data;
+}
+
+export async function getAiPerformance(): Promise<AiPerformanceStats> {
+  const { data } = await client.get<AiPerformanceStats>("/ai/performance");
+  return data;
+}
+
+export async function clearAiCache(): Promise<{ ok: boolean; cleared: number }> {
+  const { data } = await client.post<{ ok: boolean; cleared: number }>("/ai/cache/clear");
   return data;
 }
 
@@ -168,6 +223,22 @@ export async function postSendReminder(
   const { data } = await client.post<SendReminderResponse>(
     "/payments/send-reminder",
     body
+  );
+  return data;
+}
+
+export async function planSalesRoute(
+  filename: string,
+  userInstructions?: string
+): Promise<RoutePlanResponse> {
+  const trimmed = userInstructions?.trim();
+  const { data } = await client.post<RoutePlanResponse>(
+    "/ai/plan-route",
+    {
+      filename,
+      ...(trimmed ? { userInstructions: trimmed } : {}),
+    },
+    { timeout: AGENT_REQUEST_TIMEOUT_MS }
   );
   return data;
 }

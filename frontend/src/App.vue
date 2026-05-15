@@ -6,6 +6,7 @@
         class="upload-compact"
         :action="uploadAction"
         :on-success="handleUploadSuccess"
+        :on-error="handleUploadError"
         :show-file-list="false"
       >
         <el-button type="primary" class="!rounded-xl !px-4 !font-medium">
@@ -20,6 +21,7 @@
 </template>
 
 <script>
+import { ElMessage } from "element-plus";
 import DashboardShell from "@/components/layout/DashboardShell.vue";
 import { uploadActionUrl } from "@/services/api";
 
@@ -44,8 +46,27 @@ export default {
   },
   methods: {
     handleUploadSuccess(response) {
-      this.$store.commit("setCurrentFile", response.filename);
-      this.$message.success("Plik został wgrany pomyślnie!");
+      const data =
+        typeof response === "string"
+          ? (() => {
+              try {
+                return JSON.parse(response);
+              } catch {
+                return null;
+              }
+            })()
+          : response;
+      if (!data?.filename) {
+        ElMessage.error("Niepoprawna odpowiedź serwera po uploadzie.");
+        return;
+      }
+      this.$store.commit("setCurrentFile", data.filename);
+      ElMessage.success("Plik został wgrany pomyślnie!");
+    },
+    handleUploadError() {
+      ElMessage.error(
+        "Błąd wgrywania pliku. Upewnij się, że backend działa (npm run dev w folderze backend)."
+      );
     },
   },
 };

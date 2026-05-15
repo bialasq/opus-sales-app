@@ -1,6 +1,8 @@
-import OpenAI from "openai";
 import type { ComprehensiveExpertAiResponse } from "../shared/api-types";
-import { chooseProvider } from "./llmInvoke";
+import { createLogger } from "./appLogger";
+import { chooseProvider, getLlmConfigStatus, invokeLlmJsonObject } from "./llmInvoke";
+
+const log = createLogger("comprehensiveExpertAi");
 
 const SYSTEM = `Jesteś zespołem ekspertów B2B w jednej osobie:
 - VP Sprzedaży (priorytet #1: pipeline, konwersja, produkty, regiony, zespół handlowy),
@@ -75,7 +77,10 @@ function summarizePayments(p: unknown): unknown {
   };
 }
 
-function fallbackExpert(analysis: unknown): ComprehensiveExpertAiResponse {
+function fallbackExpert(
+  analysis: unknown,
+  setupHint?: string
+): ComprehensiveExpertAiResponse {
   const a = analysis as {
     summary?: Record<string, number>;
     aiRecommendations?: Array<{ title: string; description: string; action?: string }>;
@@ -87,13 +92,17 @@ function fallbackExpert(analysis: unknown): ComprehensiveExpertAiResponse {
     .map((r) => `• ${r.title}: ${r.description}`)
     .join("\n");
 
-  const sales = `Analiza sprzedażowa (tryb bez modelu LLM): przychód ${Number(s.totalRevenue || 0).toFixed(0)} PLN, wizyty ${Number(s.totalVisits || 0)}, konwersja ${Number(s.conversionRate || 0).toFixed(1)}%.\n${lines || "Brak dodatkowych rekomendacji regułowych — uzupełnij klucz API (OpenAI lub Anthropic), aby uzyskać pełną analizę ekspercką."}`;
+  const apiNote =
+    setupHint ||
+    "Aby uzyskać pełną analizę AI (sprzedaż · finanse · marketing), ustaw OPENAI_API_KEY lub ANTHROPIC_API_KEY w backend/.env i zrestartuj serwer.";
 
-  const finance = `Finanse (heurystyka): zaległości ${Number(s.overdueAmount || 0).toFixed(0)} PLN. Rozważ monitoring płatności i politykę kredytową.`;
+  const sales = `Analiza sprzedażowa (tryb bez modelu LLM): przychód ${Number(s.totalRevenue || 0).toFixed(0)} PLN, wizyty ${Number(s.totalVisits || 0)}, konwersja ${Number(s.conversionRate || 0).toFixed(1)}%.\n${lines || apiNote}`;
 
-  const marketing = `Marketing (heurystyka): wykorzystaj dane o produktach i regionach z analizy sprzedaży — skoncentruj kampanie na kategoriach z najlepszą marżą i regionach z niską konwersją.`;
+  const finance = `Finanse (heurystyka): zaległości ${Number(s.overdueAmount || 0).toFixed(0)} PLN. Rozważ monitoring płatności i politykę kredytową.\n\n${apiNote}`;
 
-  const executiveSummary = `Podsumowanie dla zarządu: wskaż priorytet na sprzedaż operacyjną, potem płynność (należności), następnie działania marketingowe wspierające konwersję.`;
+  const marketing = `Marketing (heurystyka): wykorzystaj dane o produktach i regionach z analizy sprzedaży — skoncentruj kampanie na kategoriach z najlepszą marżą i regionach z niską konwersją.\n\n${apiNote}`;
+
+  const executiveSummary = `Podsumowanie dla zarządu: wskaż priorytet na sprzedaż operacyjną, potem płynność (należności), następnie działania marketingowe wspierające konwersję. ${setupHint ? "" : " (Pełny raport LLM wymaga klucza API.)"}`;
 
   const priorityActions = recs.slice(0, 6).map((r) => ({
     title: r.title,
@@ -107,11 +116,20 @@ function fallbackExpert(analysis: unknown): ComprehensiveExpertAiResponse {
     marketing,
     executiveSummary,
     priorityActions,
-    meta: { provider: "fallback", model: "rules" },
+    meta: {
+      provider: "fallback",
+      model: "rules",
+      llmAvailable: false,
+      setupHint: apiNote,
+    },
   };
 }
 
-function parseExpertJson(raw: string): ComprehensiveExpertAiResponse | null {
+function parseExpertJson(
+  raw: string,
+  provider: string,
+  model: string
+): ComprehensiveExpertAiResponse | null {
   const cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
   try {
     const p = JSON.parse(cleaned) as Record<string, unknown>;
@@ -139,95 +157,68 @@ function parseExpertJson(raw: string): ComprehensiveExpertAiResponse | null {
       marketing: p.marketing,
       executiveSummary: p.executiveSummary,
       priorityActions,
-      meta: { provider: "llm", model: "parsed" },
+      meta: { provider, model, llmAvailable: true },
     };
   } catch {
     return null;
   }
 }
 
-async function callOpenAiExpert(userPayload: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("MISSING_OPENAI");
-  const client = new OpenAI({ apiKey });
-  const model = process.env.AI_MODEL || "gpt-4o";
-  const res = await client.chat.completions.create({
-    model,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: SYSTEM },
-      { role: "user", content: `Dane analizy (JSON):\n${userPayload}` },
-    ],
-  });
-  const text = res.choices[0]?.message?.content;
-  if (!text) throw new Error("Empty OpenAI response");
-  return text;
-}
-
-async function callAnthropicExpert(userPayload: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
-  const model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022";
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      system: SYSTEM,
-      messages: [
-        { role: "user", content: `Dane analizy (JSON):\n${userPayload}` },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Anthropic HTTP ${res.status}: ${errText.slice(0, 400)}`);
-  }
-  const body = (await res.json()) as {
-    content?: { type: string; text?: string }[];
-  };
-  const text = body.content?.find((b) => b.type === "text")?.text;
-  if (!text) throw new Error("Empty Anthropic response");
-  return text;
-}
-
 export async function runComprehensiveExpertAi(
   analysisData: unknown
 ): Promise<ComprehensiveExpertAiResponse> {
-  const provider = chooseProvider();
+  const llmStatus = getLlmConfigStatus();
   const payload = pruneForLlm(analysisData);
 
-  if (provider === "none") {
-    return fallbackExpert(analysisData);
+  if (!llmStatus.available) {
+    return fallbackExpert(analysisData, llmStatus.hint);
   }
 
+  const provider = chooseProvider();
+
   try {
-    const raw =
-      provider === "anthropic"
-        ? await callAnthropicExpert(payload)
-        : await callOpenAiExpert(payload);
-    const parsed = parseExpertJson(raw);
+    const result = await invokeLlmJsonObject({
+      system: SYSTEM,
+      user: `Dane analizy (JSON):\n${payload}`,
+      temperature: 0.2,
+    });
+    const parsed = parseExpertJson(result.raw, result.provider, result.model);
     if (parsed) {
       return {
         ...parsed,
-        meta: { provider, model: provider === "anthropic" ? "claude" : "openai" },
+        meta: {
+          ...parsed.meta,
+          setupHint: llmStatus.hint,
+        },
       };
     }
+    log.warn("Expert AI: empty or invalid JSON from model");
     return {
-      ...fallbackExpert(analysisData),
-      meta: { provider: `${provider}-parsed-empty`, model: "fallback" },
+      ...fallbackExpert(
+        analysisData,
+        "Model zwrócił niepoprawny JSON — wyświetlono analizę z reguł. Spróbuj ponownie lub zmień model w .env."
+      ),
+      meta: {
+        provider: `${provider}-parse-fallback`,
+        model: result.model,
+        llmAvailable: false,
+        setupHint: llmStatus.hint,
+      },
     };
   } catch (e) {
-    console.error("[comprehensiveExpertAi] LLM error:", e);
+    const msg = e instanceof Error ? e.message : String(e);
+    log.error("LLM error", e);
     return {
-      ...fallbackExpert(analysisData),
-      meta: { provider: `${provider}-error-fallback`, model: "fallback" },
+      ...fallbackExpert(
+        analysisData,
+        `Błąd wywołania modelu (${provider}): ${msg.slice(0, 200)}. Sprawdź klucz API, limit lub model w .env.`
+      ),
+      meta: {
+        provider: `${provider}-error-fallback`,
+        model: "fallback",
+        llmAvailable: false,
+        setupHint: llmStatus.hint,
+      },
     };
   }
 }

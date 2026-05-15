@@ -2,6 +2,7 @@
 <template>
   <div class="space-y-6 sm:space-y-8">
     <AISuggestions />
+    <AiPerformancePanel />
 
     <section aria-label="Kluczowe wskaźniki">
       <div v-if="dashboardLoading" class="dashboard-card p-6">
@@ -114,10 +115,11 @@ import { ElMessage } from "element-plus";
 import api from "@/services/api";
 import StatCard from "@/components/dashboard/StatCard.vue";
 import AISuggestions from "@/components/dashboard/AISuggestions.vue";
+import AiPerformancePanel from "@/components/dashboard/AiPerformancePanel.vue";
 
 export default {
   name: "Dashboard",
-  components: { StatCard, AISuggestions },
+  components: { StatCard, AISuggestions, AiPerformancePanel },
   setup() {
     const store = useStore();
     const topProductsChart = ref(null);
@@ -315,6 +317,7 @@ export default {
         const response = await api.post("/analytics/ai-insights", {
           data: kpiData.value,
           agentType: "salesOptimizer",
+          filename: store.state.currentFile || undefined,
         });
 
         aiInsights.value = [

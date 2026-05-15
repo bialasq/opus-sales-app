@@ -163,12 +163,70 @@
             Generuj PDF
           </el-button>
           <el-button @click="generateReport('html')">Generuj HTML</el-button>
-          <el-button type="success" @click="optimizeRoutes">
-            Optymalizuj trasy
+          <el-button
+            type="success"
+            :loading="routePlanning"
+            :disabled="!hasFile"
+            @click="optimizeRoutes"
+          >
+            Plan trasy (Olsztyn)
           </el-button>
         </div>
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="routeDialogVisible"
+      title="Sales Route Optimizer — plan dnia"
+      width="75%"
+      destroy-on-close
+    >
+      <div v-if="routePlanResult" class="route-summary">
+        <el-descriptions :column="3" border size="small">
+          <el-descriptions-item label="Jazda łącznie">
+            {{ routePlanResult.total_driving_time }} h
+          </el-descriptions-item>
+          <el-descriptions-item label="Wizyty">
+            {{ routePlanResult.total_visit_time_hours ?? "—" }} h
+          </el-descriptions-item>
+          <el-descriptions-item label="Paliwo (szac.)">
+            {{ formatCurrency(routePlanResult.estimated_fuel_cost) }}
+          </el-descriptions-item>
+          <el-descriptions-item
+            v-if="routePlanResult.meta?.fullLoopKm"
+            label="Pętla (km)"
+          >
+            {{ routePlanResult.meta.fullLoopKm }} km (z powrotem do Olsztyna)
+          </el-descriptions-item>
+        </el-descriptions>
+        <p v-if="routePlanResult.route_plan?.summary" class="route-summary-text">
+          {{ routePlanResult.route_plan.summary }}
+        </p>
+        <el-alert
+          v-for="(w, i) in routePlanResult.meta?.warnings || []"
+          :key="'meta-' + i"
+          :title="w"
+          type="error"
+          show-icon
+          :closable="false"
+          style="margin-top: 8px"
+        />
+        <el-alert
+          v-for="(w, i) in routePlanResult.guardrail_warnings || []"
+          :key="'g-' + i"
+          :title="w"
+          type="warning"
+          show-icon
+          :closable="false"
+          style="margin-top: 8px"
+        />
+      </div>
+      <RouteMap
+        :route-plan="
+          routePlanResult?.meta?.route_plan || routePlanResult?.route_plan
+        "
+      />
+    </el-dialog>
 
     <!-- Dialog z raportem -->
     <el-dialog
@@ -190,7 +248,12 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useStore } from "vuex";
 import { ElMessage } from "element-plus";
-import api, { uploadActionUrl, testDataDownloadUrl } from "@/services/api";
+import api, {
+  uploadActionUrl,
+  testDataDownloadUrl,
+  planSalesRoute,
+} from "@/services/api";
+import RouteMap from "./RouteMap.vue";
 import VisitAnalysisPanel from "./panels/VisitAnalysisPanel.vue";
 import SalesAnalysisPanel from "./panels/SalesAnalysisPanel.vue";
 import PaymentAnalysisPanel from "./panels/PaymentAnalysisPanel.vue";
@@ -207,6 +270,7 @@ export default {
     EfficiencyPanel,
     AIRecommendationsPanel,
     ExpertAiPanel,
+    RouteMap,
   },
   setup() {
     const store = useStore();
@@ -216,6 +280,9 @@ export default {
     const reportDialogVisible = ref(false);
     const reportUrl = ref("");
     const reportFormat = ref("");
+    const routeDialogVisible = ref(false);
+    const routePlanResult = ref(null);
+    const routePlanning = ref(false);
 
     const hasFile = computed(() => !!store.state.currentFile);
     const currentFileName = computed(() => store.state.currentFile || "");
@@ -374,16 +441,23 @@ export default {
     };
 
     const optimizeRoutes = async () => {
+      if (!currentFileName.value) {
+        ElMessage.warning("Najpierw wgraj plik Excel z wizytami");
+        return;
+      }
+      routePlanning.value = true;
       try {
-        const response = await api.post("/analytics/route-optimization", {
-          visitData: analysisData.value.visitAnalysis,
-          priorities: analysisData.value.visitAnalysis.customerPriorities,
-        });
-
-        ElMessage.success("Trasy zoptymalizowane");
-        // Tutaj możesz dodać wyświetlanie zoptymalizowanych tras
-      } catch {
-        ElMessage.error("Błąd optymalizacji tras");
+        const result = await planSalesRoute(currentFileName.value);
+        routePlanResult.value = result;
+        routeDialogVisible.value = true;
+        ElMessage.success("Plan trasy gotowy (Regional Logistics Manager)");
+      } catch (err) {
+        const msg =
+          err?.response?.data?.error ||
+          (err instanceof Error ? err.message : "nieznany");
+        ElMessage.error("Błąd planowania trasy: " + msg);
+      } finally {
+        routePlanning.value = false;
       }
     };
 
@@ -422,6 +496,9 @@ export default {
       reportDialogVisible,
       reportUrl,
       reportFormat,
+      routeDialogVisible,
+      routePlanResult,
+      routePlanning,
       handleUploadSuccess,
       handleUploadError,
       loadingTestData,

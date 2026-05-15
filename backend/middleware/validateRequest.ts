@@ -34,3 +34,18 @@ export function validateQuery<S extends AnyZodObject>(schema: S): RequestHandler
     next();
   };
 }
+
+export function validateParams<S extends AnyZodObject>(schema: S): RequestHandler {
+  return (req, res, next) => {
+    const parsed = schema.safeParse(req.params);
+    if (!parsed.success) {
+      res.status(400).json({
+        error: "Niepoprawne parametry ścieżki",
+        details: parsed.error.flatten(),
+      });
+      return;
+    }
+    req.params = parsed.data as typeof req.params;
+    next();
+  };
+}

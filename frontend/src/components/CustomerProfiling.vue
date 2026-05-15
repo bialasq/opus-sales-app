@@ -258,6 +258,7 @@ export default {
         const response = await api.post("/analytics/ai-insights", {
           data: selectedCustomer.value,
           agentType: "customerInsights",
+          filename: store.state.currentFile || undefined,
         });
         customerInsights.value = response.data?.insights ?? "";
       } catch {

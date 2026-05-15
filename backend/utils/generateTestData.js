@@ -1,91 +1,148 @@
 // backend/utils/generateTestData.js
+// Dane testowe: woj. warmińsko-mazurskie (baza handlowa Olsztyn) — zgodne z backend/shared/cityCoords.ts
 const XLSX = require("xlsx");
 const fs = require("fs");
 const path = require("path");
 
-// Listy danych do generowania
+const WOJEWODZTWO = "Warmińsko-mazurskie";
+
+/** Miasta regionu (route optimizer + macierz tras) */
 const MIASTA = [
-  { miasto: "Warszawa", powiat: "Warszawa", wojewodztwo: "Mazowieckie" },
-  { miasto: "Kraków", powiat: "Kraków", wojewodztwo: "Małopolskie" },
-  { miasto: "Wrocław", powiat: "Wrocław", wojewodztwo: "Dolnośląskie" },
-  { miasto: "Poznań", powiat: "Poznań", wojewodztwo: "Wielkopolskie" },
-  { miasto: "Gdańsk", powiat: "Gdańsk", wojewodztwo: "Pomorskie" },
-  { miasto: "Szczecin", powiat: "Szczecin", wojewodztwo: "Zachodniopomorskie" },
-  { miasto: "Łódź", powiat: "Łódź", wojewodztwo: "Łódzkie" },
-  { miasto: "Katowice", powiat: "Katowice", wojewodztwo: "Śląskie" },
-  { miasto: "Lublin", powiat: "Lublin", wojewodztwo: "Lubelskie" },
-  { miasto: "Białystok", powiat: "Białystok", wojewodztwo: "Podlaskie" },
-  { miasto: "Piaseczno", powiat: "Piaseczyński", wojewodztwo: "Mazowieckie" },
-  { miasto: "Pruszków", powiat: "Pruszkowski", wojewodztwo: "Mazowieckie" },
-  { miasto: "Otwock", powiat: "Otwocki", wojewodztwo: "Mazowieckie" },
-  { miasto: "Radom", powiat: "Radom", wojewodztwo: "Mazowieckie" },
-  { miasto: "Płock", powiat: "Płock", wojewodztwo: "Mazowieckie" },
-];
+  { miasto: "Olsztyn", powiat: "Olsztyn" },
+  { miasto: "Elbląg", powiat: "Elbląg" },
+  { miasto: "Ełk", powiat: "Ełcki" },
+  { miasto: "Giżycko", powiat: "Giżycki" },
+  { miasto: "Iława", powiat: "Iławski" },
+  { miasto: "Ostróda", powiat: "Ostródzki" },
+  { miasto: "Mrągowo", powiat: "Mrągowski" },
+  { miasto: "Kętrzyn", powiat: "Kętrzyński" },
+  { miasto: "Bartoszyce", powiat: "Bartoszycki" },
+  { miasto: "Lidzbark Warmiński", powiat: "Lidzbarski" },
+  { miasto: "Dobre Miasto", powiat: "Olsztyński" },
+  { miasto: "Braniewo", powiat: "Braniewski" },
+  { miasto: "Gołdap", powiat: "Gołdapski" },
+  { miasto: "Mikołajki", powiat: "Mrągowski" },
+  { miasto: "Węgorzewo", powiat: "Węgorzewski" },
+  { miasto: "Morąg", powiat: "Ostródzki" },
+  { miasto: "Pasłęk", powiat: "Elbląski" },
+  { miasto: "Nidzica", powiat: "Nidzicki" },
+  { miasto: "Szczytno", powiat: "Szczycieński" },
+].map((m) => ({ ...m, wojewodztwo: WOJEWODZTWO }));
+
+/** Szacunkowy dystans od Olsztyna (km) — do kolumny Dystans_km */
+const DYSTANS_OD_OLSZTYN_KM = {
+  Olsztyn: 0,
+  "Dobre Miasto": 12,
+  Morąg: 48,
+  Ostróda: 38,
+  Iława: 62,
+  Nidzica: 58,
+  Szczytno: 52,
+  Mrągowo: 58,
+  Mikołajki: 72,
+  "Lidzbark Warmiński": 42,
+  Bartoszyce: 68,
+  Pasłęk: 78,
+  Elbląg: 95,
+  Braniewo: 88,
+  Kętrzyn: 88,
+  Giżycko: 102,
+  Węgorzewo: 98,
+  Ełk: 108,
+  Gołdap: 118,
+};
 
 const KLIENCI = [
   {
-    nip: "5260001234",
-    nazwa: "ABC Electronics Sp. z o.o.",
-    email: "kontakt@abc-electronics.pl",
+    nip: "7390001234",
+    nazwa: "Warmia AGD Olsztyn Sp. z o.o.",
+    email: "handel@warmia-agd.pl",
+    miasto: "Olsztyn",
   },
-  { nip: "7340002345", nazwa: "XYZ Trade S.A.", email: "biuro@xyz-trade.pl" },
   {
-    nip: "6770003456",
-    nazwa: "Hurtownia Elektroniczna OMEGA",
-    email: "zamowienia@omega.pl",
+    nip: "5780002345",
+    nazwa: "Mazury Tech Elbląg S.A.",
+    email: "biuro@mazury-tech.pl",
+    miasto: "Elbląg",
+  },
+  {
+    nip: "8450003456",
+    nazwa: "Ełk Hurt Elektronika",
+    email: "zamowienia@elk-hurt.pl",
+    miasto: "Ełk",
   },
   {
     nip: "5210004567",
-    nazwa: "TechnoMarkt Sp. z o.o.",
-    email: "info@technomarkt.pl",
+    nazwa: "Giżycko Komputery Plus",
+    email: "info@gizycko-komputery.pl",
+    miasto: "Giżycko",
   },
   {
     nip: "8880005678",
-    nazwa: "Digital Solutions S.A.",
-    email: "kontakt@digital-solutions.pl",
+    nazwa: "Iława Digital Solutions",
+    email: "kontakt@ilawa-digital.pl",
+    miasto: "Iława",
   },
   {
     nip: "9990006789",
-    nazwa: "Komputer Świat",
-    email: "sklep@komputer-swiat.pl",
+    nazwa: "Ostróda Elektro-Market",
+    email: "sklep@ostroda-elektro.pl",
+    miasto: "Ostróda",
   },
   {
     nip: "1110007890",
-    nazwa: "Euro-Tech Sp. z o.o.",
-    email: "biuro@euro-tech.pl",
+    nazwa: "Mrągowo IT Partner",
+    email: "b2b@mragowo-it.pl",
+    miasto: "Mrągowo",
   },
   {
     nip: "2220008901",
-    nazwa: "Media Expert Partner",
-    email: "partner@media-expert.pl",
+    nazwa: "Kętrzyn Systemy B2B",
+    email: "partner@ketrzyn-systemy.pl",
+    miasto: "Kętrzyn",
   },
   {
     nip: "3330009012",
-    nazwa: "Elektronika Plus",
-    email: "handel@elektronika-plus.pl",
+    nazwa: "Bartoszyce Hurt RTV",
+    email: "hurt@bartoszyce-rtv.pl",
+    miasto: "Bartoszyce",
   },
   {
     nip: "4440001123",
-    nazwa: "Smart Home Systems",
-    email: "orders@smarthome.pl",
+    nazwa: "Lidzbark Warmiński Elektro",
+    email: "orders@lidzbark-elektro.pl",
+    miasto: "Lidzbark Warmiński",
   },
   {
     nip: "5550002234",
-    nazwa: "IT Distribution Polska",
-    email: "sales@it-distribution.pl",
+    nazwa: "Braniewo Tech Distribution",
+    email: "sales@braniewo-tech.pl",
+    miasto: "Braniewo",
   },
   {
     nip: "6660003345",
-    nazwa: "Biuro Tech Sp. z o.o.",
-    email: "zakupy@biuro-tech.pl",
+    nazwa: "Gołdap Biuro Sprzedaży",
+    email: "zakupy@goldap-biuro.pl",
+    miasto: "Gołdap",
   },
   {
     nip: "7770004456",
-    nazwa: "Komputronik Business",
-    email: "b2b@komputronik.pl",
+    nazwa: "Mikołajki Marina Electronics",
+    email: "b2b@marina-electronics.pl",
+    miasto: "Mikołajki",
   },
-  { nip: "8880005567", nazwa: "Elektro Hurt", email: "hurt@elektro.pl" },
-  { nip: "9990006678", nazwa: "AGD-RTV Market", email: "zamowienia@agdrtv.pl" },
+  {
+    nip: "8880005567",
+    nazwa: "Węgorzewo Jeziorna Hurt",
+    email: "hurt@wegorzewo-jeziorna.pl",
+    miasto: "Węgorzewo",
+  },
+  {
+    nip: "9990006678",
+    nazwa: "Szczytno Mazury Trade",
+    email: "zamowienia@szczytno-trade.pl",
+    miasto: "Szczytno",
+  },
 ];
 
 const PRODUKTY = [
@@ -181,12 +238,13 @@ const PRODUKTY = [
   },
 ];
 
+/** Przedstawiciele — baza w Olsztynie */
 const HANDLOWCY = [
-  "Jan Kowalski",
-  "Anna Nowak",
-  "Piotr Wiśniewski",
-  "Katarzyna Wójcik",
-  "Marek Kamiński",
+  "Jan Kowalski (Olsztyn)",
+  "Anna Nowak (Olsztyn)",
+  "Piotr Wiśniewski (region wschodni)",
+  "Katarzyna Wójcik (region zachodni)",
+  "Marek Kamiński (Pojezierze)",
 ];
 
 const OPISY_WIZYT = [
@@ -200,9 +258,11 @@ const OPISY_WIZYT = [
   "Wizyta posprzedażowa - sprawdzenie satysfakcji",
   "Klient rozważa zakup, prosi o czas do namysłu",
   "Prezentacja rozwiązań dla firm, duże zainteresowanie",
+  "Spadek obrotów w ostatnim kwartale — pilna wizyta handlowa",
+  "Reklamacja dostawy, klient oczekuje rozwiązania na miejscu",
+  "Oferta sezonowa dla regionu mazurskiego — follow-up",
 ];
 
-// Funkcje pomocnicze
 function randomDate(start, end) {
   return new Date(
     start.getTime() + Math.random() * (end.getTime() - start.getTime())
@@ -213,6 +273,28 @@ function randomElement(array) {
   return array[Math.floor(Math.random() * array.length)];
 }
 
+function findMiasto(nazwaMiasta) {
+  return (
+    MIASTA.find((m) => m.miasto === nazwaMiasta) ||
+    randomElement(MIASTA)
+  );
+}
+
+function dystansKmDlaMiasta(nazwaMiasta) {
+  const base = DYSTANS_OD_OLSZTYN_KM[nazwaMiasta];
+  if (base != null) {
+    return base + Math.floor(Math.random() * 8);
+  }
+  return 25 + Math.floor(Math.random() * 85);
+}
+
+function pickLokalizacjaDlaKlienta(klient) {
+  if (Math.random() < 0.82) {
+    return findMiasto(klient.miasto);
+  }
+  return randomElement(MIASTA);
+}
+
 function generateVisits(numVisits = 500) {
   const visits = [];
   const startDate = new Date("2024-01-01");
@@ -220,23 +302,24 @@ function generateVisits(numVisits = 500) {
 
   for (let i = 0; i < numVisits; i++) {
     const klient = randomElement(KLIENCI);
-    const lokalizacja = randomElement(MIASTA);
+    const lokalizacja = pickLokalizacjaDlaKlienta(klient);
     const data = randomDate(startDate, endDate);
-    const godzina = 8 + Math.floor(Math.random() * 9); // 8:00 - 17:00
-    const minuty = Math.floor(Math.random() * 4) * 15; // 0, 15, 30, 45
+    const godzina = 8 + Math.floor(Math.random() * 9);
+    const minuty = Math.floor(Math.random() * 4) * 15;
 
     visits.push({
       Data: data.toLocaleDateString("pl-PL"),
       Godzina_Start: `${godzina}:${minuty.toString().padStart(2, "0")}`,
-      Czas_Trwania: 30 + Math.floor(Math.random() * 90), // 30-120 minut
+      Czas_Trwania: 30 + Math.floor(Math.random() * 90),
       Sprzedażowa: Math.random() > 0.3 ? "Tak" : "Nie",
       Miejscowość: lokalizacja.miasto,
       Powiat: lokalizacja.powiat,
       Województwo: lokalizacja.wojewodztwo,
       Klient_NIP: klient.nip,
+      Klient_Nazwa: klient.nazwa,
       Opis: randomElement(OPISY_WIZYT),
       Opiekun: randomElement(HANDLOWCY),
-      Dystans_km: 5 + Math.floor(Math.random() * 195), // 5-200 km
+      Dystans_km: dystansKmDlaMiasta(lokalizacja.miasto),
     });
   }
 
@@ -255,7 +338,7 @@ function generateSales(numSales = 1000) {
     const rabat = Math.random() > 0.7 ? Math.floor(Math.random() * 20) : 0;
     const cenaPoRabacie = produkt.cena * (1 - rabat / 100);
     const wartosc = cenaPoRabacie * ilosc;
-    const marza = wartosc * (0.15 + Math.random() * 0.2); // 15-35% marży
+    const marza = wartosc * (0.15 + Math.random() * 0.2);
 
     sales.push({
       Data_Sprzedaży: randomDate(startDate, endDate).toLocaleDateString(
@@ -280,7 +363,6 @@ function generateInvoices(salesData) {
   const invoices = [];
   const invoiceMap = new Map();
 
-  // Grupuj sprzedaże według klienta i daty
   salesData.forEach((sale) => {
     const key = `${sale.Klient_NIP}_${sale.Data_Sprzedaży}`;
     if (!invoiceMap.has(key)) {
@@ -304,13 +386,13 @@ function generateInvoices(salesData) {
     );
 
     const klient = KLIENCI.find((k) => k.nip === invoice.klient.nip);
-    const czyZaplacona = Math.random() > 0.25; // 75% zapłaconych
+    const czyZaplacona = Math.random() > 0.25;
 
     invoices.push({
       Nr_Faktury: `FV/2024/${invoiceNumber.toString().padStart(4, "0")}`,
       Klient_NIP: invoice.klient.nip,
       Klient_Nazwa: invoice.klient.nazwa,
-      Kwota_Brutto: Math.round(invoice.wartosc * 1.23 * 100) / 100, // +23% VAT
+      Kwota_Brutto: Math.round(invoice.wartosc * 1.23 * 100) / 100,
       Data_Wystawienia: dataWystawienia.toLocaleDateString("pl-PL"),
       Termin_Płatności: terminPlatnosci.toLocaleDateString("pl-PL"),
       Email: klient ? klient.email : "brak@email.pl",
@@ -323,19 +405,15 @@ function generateInvoices(salesData) {
   return invoices;
 }
 
-// Główna funkcja generująca plik Excel
 function generateTestExcel() {
-  console.log("Generowanie danych testowych...");
+  console.log("Generowanie danych testowych (woj. warmińsko-mazurskie, baza: Olsztyn)...");
 
-  // Generuj dane
   const visits = generateVisits(500);
   const sales = generateSales(1000);
   const invoices = generateInvoices(sales);
 
-  // Utwórz workbook
   const wb = XLSX.utils.book_new();
 
-  // Dodaj arkusze
   const wsVisits = XLSX.utils.json_to_sheet(visits);
   XLSX.utils.book_append_sheet(wb, wsVisits, "Wizyty");
 
@@ -345,19 +423,19 @@ function generateTestExcel() {
   const wsInvoices = XLSX.utils.json_to_sheet(invoices);
   XLSX.utils.book_append_sheet(wb, wsInvoices, "Faktury");
 
-  // Zapisz plik
   const outputPath = path.join(__dirname, "..", "dane_testowe.xlsx");
   XLSX.writeFile(wb, outputPath);
 
+  const miastaWwizytach = new Set(visits.map((v) => v.Miejscowość));
   console.log(`Plik testowy wygenerowany: ${outputPath}`);
   console.log(`- Wizyty: ${visits.length} rekordów`);
   console.log(`- Sprzedaż: ${sales.length} rekordów`);
   console.log(`- Faktury: ${invoices.length} rekordów`);
+  console.log(`- Miasta w wizytach (${miastaWwizytach.size}): ${[...miastaWwizytach].sort().join(", ")}`);
 
   return outputPath;
 }
 
-// Uruchom generator jeśli plik jest wykonywany bezpośrednio
 if (require.main === module) {
   generateTestExcel();
 }
