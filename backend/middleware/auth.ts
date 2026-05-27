@@ -29,6 +29,7 @@ const PUBLIC_PATHS = new Set([
   "/health",
   "/healthz",
   "/readyz",
+  "/ready",
 ]);
 
 function isPublicPath(req: Request): boolean {

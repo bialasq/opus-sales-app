@@ -13,8 +13,11 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { apiKeyAuth } from "./middleware/auth";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { requestIdMiddleware } from "./middleware/requestId";
 import { rootLogger } from "./services/appLogger";
 import { getAppRoot } from "./utils/appRoot";
+import { ValidationError } from "./errors";
 
 const appRoot = getAppRoot();
 
@@ -23,7 +26,6 @@ dotenv.config({
   override: process.env.NODE_ENV !== "production",
 });
 
-// Trasy w JS — require() do czasu migracji plików na .ts (Node ładuje je jak dotąd).
 const analyticsRoutes = require("./routes/analytics") as Router;
 const customersRoutes = require("./routes/customers") as Router;
 const productsRoutes = require("./routes/products") as Router;
@@ -31,161 +33,195 @@ const paymentsRoutes = require("./routes/payments") as Router;
 const aiRoutes = require("./routes/ai") as Router;
 const adminRoutes = require("./routes/admin") as Router;
 
-const app: Application = express();
-const PORT: number = Number(process.env.PORT) || 3000;
+export let isAppReady = false;
 
-const uploadsDir = path.join(appRoot, "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+export function setAppReadyForTests(ready = true): void {
+  isAppReady = ready;
 }
 
-/** UI origin (Vue dev server) — CORS whitelist + link na GET / */
-const FRONTEND_ORIGIN =
-  process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
-
-app.use(
-  cors({
-    origin: FRONTEND_ORIGIN,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "x-api-key"],
-  })
-);
-
-app.use(
-  helmet({
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
-  })
-);
-
-app.use(express.json({ limit: "12mb" }));
-
-const generalApiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later" },
-});
-
-const aiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "AI rate limit exceeded, please wait" },
-});
-
-const uploadLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many uploads, please try again later" },
-});
-
-app.use("/api/", generalApiLimiter);
-app.use("/api/ai/", aiLimiter);
-app.use("/api/upload", uploadLimiter);
-
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-app.use("/api", apiKeyAuth);
-
-const ALLOWED_MIME_TYPES = [
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-];
-
-const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
-const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const baseName = path
-      .basename(file.originalname, ext)
-      .replace(/[^A-Za-z0-9._-]/g, "_")
-      .slice(0, 100);
-    cb(null, `${randomUUID()}-${baseName}${ext}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_UPLOAD_SIZE },
-  fileFilter: (_req, file, cb) => {
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-      cb(
-        new Error(
-          `Invalid file type: ${file.mimetype}. Only Excel files allowed.`
-        )
-      );
-      return;
-    }
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      cb(
-        new Error(
-          `Invalid file extension: ${ext}. Only .xlsx and .xls allowed.`
-        )
-      );
-      return;
-    }
-    cb(null, true);
-  },
-});
-
-const handleUpload: RequestHandler = (req, res, _next) => {
-  const file = req.file;
-  if (!file) {
-    res.status(400).json({ error: "Brak pliku" });
-    return;
+export function createApp(): Application {
+  const app: Application = express();
+  const uploadsDir = path.join(appRoot, "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
   }
-  res.json({
-    filename: file.filename,
-    originalName: file.originalname,
-    size: file.size,
+
+  const FRONTEND_ORIGIN =
+    process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
+
+  app.use(requestIdMiddleware);
+
+  app.use((req, res, next) => {
+    inFlightRequests++;
+    const done = () => {
+      inFlightRequests = Math.max(0, inFlightRequests - 1);
+    };
+    res.on("finish", done);
+    res.on("close", done);
+    next();
   });
-};
 
-app.post("/api/upload", upload.single("file"), handleUpload);
+  app.use(
+    cors({
+      origin: FRONTEND_ORIGIN,
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      allowedHeaders: ["Content-Type", "x-api-key", "x-request-id"],
+    })
+  );
 
-const testDataDownload: RequestHandler = (_req, res, _next) => {
-  const testFilePath = path.join(appRoot, "dane_testowe.xlsx");
-  if (!fs.existsSync(testFilePath)) {
-    res.status(404).json({
-      error: "Plik testowy nie istnieje. Uruchom: npm run generate-test-data",
-    });
-    return;
-  }
-  res.download(testFilePath, "dane_testowe.xlsx", (err: Error | null) => {
-    if (err) {
-      rootLogger.error("Błąd pobierania pliku testowego", err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: err.message });
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    })
+  );
+
+  app.use(express.json({ limit: "12mb" }));
+
+  const generalApiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later" },
+  });
+
+  const aiLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "AI rate limit exceeded, please wait" },
+  });
+
+  const uploadLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many uploads, please try again later" },
+  });
+
+  app.use("/api/", generalApiLimiter);
+  app.use("/api/ai/", aiLimiter);
+  app.use("/api/upload", uploadLimiter);
+
+  const healthPayload = () => ({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+  });
+
+  app.get("/api/health", (_req, res) => {
+    res.json(healthPayload());
+  });
+
+  app.get("/api/healthz", (_req, res) => {
+    res.json(healthPayload());
+  });
+
+  app.get("/api/readyz", (_req, res) => {
+    if (!isAppReady) {
+      res.status(503).json({ status: "not ready" });
+      return;
+    }
+    res.json({ status: "ready" });
+  });
+
+  app.use("/api", apiKeyAuth);
+
+  const ALLOWED_MIME_TYPES = [
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+  ];
+
+  const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
+  const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
+
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      cb(null, uploadsDir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      const baseName = path
+        .basename(file.originalname, ext)
+        .replace(/[^A-Za-z0-9._-]/g, "_")
+        .slice(0, 100);
+      cb(null, `${randomUUID()}-${baseName}${ext}`);
+    },
+  });
+
+  const upload = multer({
+    storage,
+    limits: { fileSize: MAX_UPLOAD_SIZE },
+    fileFilter: (_req, file, cb) => {
+      if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+        cb(
+          new ValidationError(
+            `Invalid file type: ${file.mimetype}. Only Excel files allowed.`
+          )
+        );
+        return;
       }
-    }
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        cb(
+          new ValidationError(
+            `Invalid file extension: ${ext}. Only .xlsx and .xls allowed.`
+          )
+        );
+        return;
+      }
+      cb(null, true);
+    },
   });
-};
 
-app.get("/api/test-data/download", testDataDownload);
+  const handleUpload: RequestHandler = (req, res, _next) => {
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: "Brak pliku" });
+      return;
+    }
+    res.json({
+      filename: file.filename,
+      originalName: file.originalname,
+      size: file.size,
+    });
+  };
 
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/customers", customersRoutes);
-app.use("/api/products", productsRoutes);
-app.use("/api/payments", paymentsRoutes);
-app.use("/api/ai", aiRoutes);
-app.use("/api/admin", adminRoutes);
+  app.post("/api/upload", upload.single("file"), handleUpload);
 
-app.get("/", (_req, res) => {
-  res.type("html").send(`<!DOCTYPE html>
+  const testDataDownload: RequestHandler = (_req, res, next) => {
+    const testFilePath = path.join(appRoot, "dane_testowe.xlsx");
+    if (!fs.existsSync(testFilePath)) {
+      next(
+        new ValidationError(
+          "Plik testowy nie istnieje. Uruchom: npm run generate-test-data"
+        )
+      );
+      return;
+    }
+    res.download(testFilePath, "dane_testowe.xlsx", (err: Error | null) => {
+      if (err) {
+        next(err);
+      }
+    });
+  };
+
+  app.get("/api/test-data/download", testDataDownload);
+
+  app.use("/api/analytics", analyticsRoutes);
+  app.use("/api/customers", customersRoutes);
+  app.use("/api/products", productsRoutes);
+  app.use("/api/payments", paymentsRoutes);
+  app.use("/api/ai", aiRoutes);
+  app.use("/api/admin", adminRoutes);
+
+  const PORT: number = Number(process.env.PORT) || 3000;
+
+  app.get("/", (_req, res) => {
+    res.type("html").send(`<!DOCTYPE html>
 <html lang="pl">
 <head>
   <meta charset="utf-8"/>
@@ -198,42 +234,90 @@ app.get("/", (_req, res) => {
 </head>
 <body>
   <h1>Backend API (port ${PORT})</h1>
-  <p>To jest serwer Express — <strong>nie hostuje</strong> interfejsu Vue. Stąd komunikat „Cannot GET /” bez tej strony.</p>
+  <p>To jest serwer Express — <strong>nie hostuje</strong> interfejsu Vue.</p>
   <p><strong>Aplikacja (UI):</strong> <a href="${FRONTEND_ORIGIN}">${FRONTEND_ORIGIN}</a></p>
-  <p>Uruchom frontend: <code>cd frontend && npm run serve</code> (Vue CLI domyślnie <code>:8080</code>).</p>
-  <p>API jest pod ścieżką <code>/api/…</code> (np. proxy z frontendu).</p>
+  <p>API jest pod ścieżką <code>/api/…</code>.</p>
 </body>
 </html>`);
-});
+  });
 
-const multerErrorHandler: ErrorRequestHandler = (err, _req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({ error: "File exceeds 25 MB limit" });
+  const multerErrorHandler: ErrorRequestHandler = (err, _req, _res, next) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        next(new ValidationError("File exceeds 25 MB limit", err.message));
+        return;
+      }
+      next(new ValidationError(`Upload error: ${err.message}`));
       return;
     }
-    res.status(400).json({ error: `Upload error: ${err.message}` });
-    return;
+    next(err);
+  };
+
+  app.use(multerErrorHandler);
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+
+  return app;
+}
+
+let inFlightRequests = 0;
+
+export function startServer(): ReturnType<Application["listen"]> {
+  const app = createApp();
+  const PORT: number = Number(process.env.PORT) || 3000;
+
+  const server = app.listen(PORT, () => {
+    isAppReady = true;
+    rootLogger.info(`Serwer działa na porcie ${PORT}`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      rootLogger.error(
+        `Port ${PORT} jest już zajęty — zatrzymaj proces na porcie ${PORT} i uruchom ponownie.`
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
+
+  function gracefulShutdown(signal: string): void {
+    rootLogger.info(`Received ${signal}, starting graceful shutdown`);
+    isAppReady = false;
+
+    server.close((closeErr) => {
+      if (closeErr) {
+        rootLogger.error("Error during server close", closeErr);
+        process.exit(1);
+        return;
+      }
+      rootLogger.info("Server closed cleanly");
+      process.exit(0);
+    });
+
+    setTimeout(() => {
+      rootLogger.warn(
+        `Force exit after timeout. In-flight requests: ${inFlightRequests}`
+      );
+      process.exit(1);
+    }, 30_000);
   }
-  if (err instanceof Error && err.message.includes("Invalid file")) {
-    res.status(400).json({ error: err.message });
-    return;
-  }
-  next(err);
-};
 
-app.use(multerErrorHandler);
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
-const server = app.listen(PORT, () => {
-  rootLogger.info(`Serwer działa na porcie ${PORT}`);
-});
+  process.on("unhandledRejection", (reason) => {
+    rootLogger.error("Unhandled promise rejection", reason);
+  });
 
-server.on("error", (err: NodeJS.ErrnoException) => {
-  if (err.code === "EADDRINUSE") {
-    rootLogger.error(
-      `Port ${PORT} jest już zajęty — backend już działa w innym terminalu. Zatrzymaj go (Ctrl+C) albo zamknij proces na porcie ${PORT}, potem uruchom npm run dev ponownie.`
-    );
+  process.on("uncaughtException", (err) => {
+    rootLogger.error("Uncaught exception", err);
     process.exit(1);
-  }
-  throw err;
-});
+  });
+
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
+}
