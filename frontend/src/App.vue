@@ -5,6 +5,7 @@
       <el-upload
         class="upload-compact"
         :action="uploadAction"
+        :headers="uploadHeaders"
         :on-success="handleUploadSuccess"
         :on-error="handleUploadError"
         :show-file-list="false"
@@ -23,7 +24,7 @@
 <script>
 import { ElMessage } from "element-plus";
 import DashboardShell from "@/components/layout/DashboardShell.vue";
-import { uploadActionUrl } from "@/services/api";
+import { getApiKeyHeaders, uploadActionUrl } from "@/services/api";
 
 export default {
   name: "App",
@@ -31,6 +32,9 @@ export default {
   computed: {
     uploadAction() {
       return uploadActionUrl();
+    },
+    uploadHeaders() {
+      return getApiKeyHeaders();
     },
     pageTitle() {
       const titles = {
