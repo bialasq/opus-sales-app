@@ -130,7 +130,7 @@ router.get(
 
     const { sessionId } = req.params as { sessionId: string };
 
-    const job = getAiInsightsJobStatus(sessionId);
+    const job = await getAiInsightsJobStatus(sessionId);
 
     if (!job) {
 
@@ -180,11 +180,11 @@ router.post(
 
 
 
-router.get("/performance", (_req: Request, res: Response) => {
+router.get("/performance", async (_req: Request, res: Response) => {
 
   try {
 
-    res.json(getAiPerformanceStats());
+    res.json(await getAiPerformanceStats());
 
   } catch (error) {
 
@@ -228,11 +228,11 @@ router.post(
   }
 );
 
-router.post("/cache/clear", (_req: Request, res: Response) => {
+router.post("/cache/clear", async (_req: Request, res: Response) => {
 
   try {
 
-    const result = clearAiCache();
+    const result = await clearAiCache();
 
     res.json({ ok: true, ...result });
 
@@ -250,5 +250,5 @@ router.post("/cache/clear", (_req: Request, res: Response) => {
 
 
 
-module.exports = router;
+export default router;
 

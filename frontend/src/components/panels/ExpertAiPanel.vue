@@ -1,5 +1,9 @@
 <template>
-  <div class="expert-ai-panel">
+  <div
+    v-loading="loading"
+    element-loading-text="Generowanie analizy — zwykle 15–45 sekund…"
+    class="expert-ai-panel"
+  >
     <el-alert
       v-if="metaLine"
       :title="metaLine"

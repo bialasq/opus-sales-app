@@ -1,11 +1,16 @@
-import fs from "fs";
 import crypto from "crypto";
 import type { AiInsightsResponse } from "../shared/api-types";
 import { resolveUploadPath } from "../utils/filePathResolver";
+import { getStorage } from "./storage";
 import { chooseProvider } from "./llmInvoke";
 import { getActivePromptVersion } from "../prompts";
+import { createLogger } from "./appLogger";
+import { getRedis } from "./redis";
+
+const log = createLogger("agentCache");
 
 const CACHE_TTL_MS = Number(process.env.AGENT_CACHE_TTL_MS) || 10 * 60 * 1000;
+const CACHE_TTL_SECONDS = Math.max(60, Math.ceil(CACHE_TTL_MS / 1000));
 
 type CacheEntry = {
   key: string;
@@ -15,17 +20,27 @@ type CacheEntry = {
 
 const memoryCache = new Map<string, CacheEntry>();
 
-/** Klucz cache: plik + hash treści + wersja promptu + dostawca */
-export function buildCacheKey(filename: string, params: Record<string, unknown> = {}): string {
-  const filePath = resolveUploadPath(filename);
-  let filePart = `${filename}:missing`;
-  if (fs.existsSync(filePath)) {
-    const stat = fs.statSync(filePath);
-    const hash = crypto.createHash("sha256");
-    const buf = fs.readFileSync(filePath);
-    hash.update(buf);
-    filePart = `${filename}:${stat.mtimeMs}:${hash.digest("hex").slice(0, 16)}`;
+function cacheRedisKey(key: string): string {
+  return `agentcache:${key}`;
+}
+
+async function fileFingerprint(filename: string): Promise<string> {
+  try {
+    resolveUploadPath(filename);
+    const meta = await getStorage().getMetadata(filename);
+    if (!meta) return `${filename}:missing`;
+    return `${filename}:${meta.lastModified.getTime()}:${meta.size}`;
+  } catch {
+    return `${filename}:invalid`;
   }
+}
+
+/** Klucz cache: plik (mtime+size) + wersja promptu + dostawca + parametry */
+export async function buildCacheKey(
+  filename: string,
+  params: Record<string, unknown> = {}
+): Promise<string> {
+  const filePart = await fileFingerprint(filename);
   const paramPart = crypto
     .createHash("md5")
     .update(JSON.stringify(params))
@@ -34,29 +49,71 @@ export function buildCacheKey(filename: string, params: Record<string, unknown> 
   return `${filePart}:${getActivePromptVersion()}:${chooseProvider()}:${paramPart}`;
 }
 
-export function getCachedInsights(key: string): AiInsightsResponse | null {
+function cloneWithCacheMeta(
+  response: AiInsightsResponse,
+  cacheAgeMs: number
+): AiInsightsResponse {
+  const cloned = JSON.parse(JSON.stringify(response)) as AiInsightsResponse;
+  cloned.meta = {
+    ...cloned.meta,
+    from_cache: true,
+    sessionId: cloned.meta.sessionId,
+    cacheAge_ms: cacheAgeMs,
+  };
+  return cloned;
+}
+
+export async function getCachedInsights(
+  key: string
+): Promise<AiInsightsResponse | null> {
+  const redis = getRedis();
+  if (redis) {
+    const raw = await redis.get(cacheRedisKey(key));
+    if (!raw) return null;
+    try {
+      const entry = JSON.parse(raw) as CacheEntry;
+      if (Date.now() - entry.storedAt > CACHE_TTL_MS) {
+        await redis.del(cacheRedisKey(key));
+        return null;
+      }
+      return cloneWithCacheMeta(entry.response, Date.now() - entry.storedAt);
+    } catch {
+      log.warn("Corrupt cache entry", { key });
+      return null;
+    }
+  }
+
   const entry = memoryCache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.storedAt > CACHE_TTL_MS) {
     memoryCache.delete(key);
     return null;
   }
-  const response = JSON.parse(JSON.stringify(entry.response)) as AiInsightsResponse;
-  response.meta = {
-    ...response.meta,
-    from_cache: true,
-    sessionId: response.meta.sessionId,
-    cacheAge_ms: Date.now() - entry.storedAt,
-  };
-  return response;
+  return cloneWithCacheMeta(entry.response, Date.now() - entry.storedAt);
 }
 
-export function setCachedInsights(key: string, response: AiInsightsResponse): void {
-  memoryCache.set(key, {
+export async function setCachedInsights(
+  key: string,
+  response: AiInsightsResponse
+): Promise<void> {
+  const entry: CacheEntry = {
     key,
     storedAt: Date.now(),
     response: JSON.parse(JSON.stringify(response)) as AiInsightsResponse,
-  });
+  };
+
+  const redis = getRedis();
+  if (redis) {
+    await redis.set(
+      cacheRedisKey(key),
+      JSON.stringify(entry),
+      "EX",
+      CACHE_TTL_SECONDS
+    );
+    return;
+  }
+
+  memoryCache.set(key, entry);
   if (memoryCache.size > 50) {
     const oldest = [...memoryCache.entries()].sort(
       (a, b) => a[1].storedAt - b[1].storedAt
@@ -65,18 +122,56 @@ export function setCachedInsights(key: string, response: AiInsightsResponse): vo
   }
 }
 
-export function invalidateCacheForFile(filename: string): void {
+export async function invalidateCacheForFile(filename: string): Promise<void> {
+  const prefix = `${filename}:`;
+  const redis = getRedis();
+  if (redis) {
+    const stream = redis.scanStream({ match: "agentcache:*", count: 100 });
+    for await (const keys of stream) {
+      const keyList = keys as string[];
+      const toDelete = keyList.filter((k) => k.includes(prefix));
+      if (toDelete.length) await redis.del(...toDelete);
+    }
+    return;
+  }
   for (const key of memoryCache.keys()) {
-    if (key.startsWith(`${filename}:`)) memoryCache.delete(key);
+    if (key.startsWith(prefix)) memoryCache.delete(key);
   }
 }
 
-export function clearAllAgentCache(): { cleared: number } {
+export async function clearAllAgentCache(): Promise<{ cleared: number }> {
+  const redis = getRedis();
+  if (redis) {
+    let cleared = 0;
+    const stream = redis.scanStream({ match: "agentcache:*", count: 100 });
+    for await (const keys of stream) {
+      const keyList = keys as string[];
+      if (keyList.length) {
+        cleared += keyList.length;
+        await redis.del(...keyList);
+      }
+    }
+    return { cleared };
+  }
   const n = memoryCache.size;
   memoryCache.clear();
   return { cleared: n };
 }
 
-export function getCacheStats(): { size: number } {
+export async function getCacheStats(): Promise<{ size: number }> {
+  const redis = getRedis();
+  if (redis) {
+    let size = 0;
+    const stream = redis.scanStream({ match: "agentcache:*", count: 100 });
+    for await (const keys of stream) {
+      size += (keys as string[]).length;
+    }
+    return { size };
+  }
   return { size: memoryCache.size };
+}
+
+/** Tylko testy */
+export function __clearMemoryCacheForTests(): void {
+  memoryCache.clear();
 }

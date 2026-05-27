@@ -1,6 +1,9 @@
 node_modules
-npm-debug.log
+dist
 .git
 .env
-.env.local
-dist
+.env.*
+*.log
+coverage
+.vscode
+.idea

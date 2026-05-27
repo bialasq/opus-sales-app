@@ -51,18 +51,18 @@ export class SalesWorkbookContext {
     this.filename = filename;
   }
 
-  getProducts(): ProductRotationMetricRow[] {
+  async getProducts(): Promise<ProductRotationMetricRow[]> {
     if (!this.productsCache) {
-      this.productsCache = buildProductRotationMetrics(this.filename);
+      this.productsCache = await buildProductRotationMetrics(this.filename);
     }
     return this.productsCache;
   }
 
-  getSalesAnalysis(): SalesAnalysisShape {
+  async getSalesAnalysis(): Promise<SalesAnalysisShape> {
     if (!this.salesAnalysisCache) {
-      this.salesAnalysisCache = analyzeSalesFromFile(
+      this.salesAnalysisCache = (await analyzeSalesFromFile(
         this.filename
-      ) as SalesAnalysisShape;
+      )) as SalesAnalysisShape;
     }
     return this.salesAnalysisCache;
   }
@@ -118,7 +118,7 @@ async function toolGetTopProducts(
   args: Record<string, unknown>
 ): Promise<unknown> {
   const limit = parseBoundedInt(args.limit, 10, 1, 25);
-  const products = ctx.getProducts();
+  const products = await ctx.getProducts();
   return [...products]
     .sort((a, b) => b.totalValue - a.totalValue)
     .slice(0, limit)
@@ -136,7 +136,7 @@ async function toolGetLowStockAlerts(
   args: Record<string, unknown>
 ): Promise<unknown> {
   const rotationThreshold = parseBoundedFloat(args.rotationThreshold, 0.35, 0.05, 0.95);
-  const products = ctx.getProducts();
+  const products = await ctx.getProducts();
   const stockoutRisk = products
     .filter((p) => p.rotationRate >= 0.65)
     .sort((a, b) => b.rotationRate - a.rotationRate)
@@ -187,7 +187,7 @@ async function toolCompareWithPreviousPeriod(
   }
 
   const currentStat = fs.statSync(currentPath);
-  const currentProducts = ctx.getProducts();
+  const currentProducts = await ctx.getProducts();
   const currentRevenue = currentProducts.reduce((s, p) => s + p.totalValue, 0);
 
   const candidates = fs
@@ -215,7 +215,7 @@ async function toolCompareWithPreviousPeriod(
   }
 
   const previousFilename = candidates[0].name;
-  const prevProducts = buildProductRotationMetrics(previousFilename);
+  const prevProducts = await buildProductRotationMetrics(previousFilename);
   const prevRevenue = prevProducts.reduce((s, p) => s + p.totalValue, 0);
   const prevByName = new Map(prevProducts.map((p) => [p.name, p]));
   const currByName = new Map(currentProducts.map((p) => [p.name, p]));
@@ -291,7 +291,7 @@ async function toolListRouteVisitCandidates(
 ): Promise<unknown> {
   const limit = parseBoundedInt(args.limit, 25, 1, 40);
   const onlyReachable = args.onlyReachable !== false;
-  const data = buildRouteVisitCandidates(ctx.filename);
+  const data = await buildRouteVisitCandidates(ctx.filename);
   let list = data.candidates;
   if (onlyReachable) {
     list = list.filter((c) => c.reachableFromBase);
@@ -334,7 +334,7 @@ async function toolCalculateCustomerLTV(
     return { error: "customerId (NIP) jest wymagany" };
   }
 
-  const sales = ctx.getSalesAnalysis();
+  const sales = await ctx.getSalesAnalysis();
   const byCustomer = sales.salesByCustomer || {};
   const entry = byCustomer[customerId];
   if (!entry) {

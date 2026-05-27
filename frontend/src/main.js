@@ -1,5 +1,6 @@
 // frontend/src/main.js
 import { createApp } from "vue";
+import * as Sentry from "@sentry/vue";
 import App from "./App.vue";
 import router from "./router";
 import store from "./store";
@@ -9,6 +10,29 @@ import "./assets/tailwind.css";
 import * as ElementPlusIconsVue from "@element-plus/icons-vue";
 
 const app = createApp(App);
+
+const sentryDsn =
+  (typeof window !== "undefined" &&
+    window.__APP_CONFIG__ &&
+    window.__APP_CONFIG__.SENTRY_DSN) ||
+  process.env.VUE_APP_SENTRY_DSN;
+
+if (sentryDsn) {
+  Sentry.init({
+    app,
+    dsn: sentryDsn,
+    environment: process.env.NODE_ENV,
+    integrations: [Sentry.browserTracingIntegration({ router })],
+    tracesSampleRate: 0.1,
+  });
+}
+
+app.config.errorHandler = (err, _instance, info) => {
+  console.error("Vue error:", err, info);
+  if (sentryDsn) {
+    Sentry.captureException(err, { extra: { info } });
+  }
+};
 
 // Rejestruj wszystkie ikony
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {

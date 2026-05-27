@@ -17,18 +17,21 @@
         </el-button>
       </el-upload>
     </template>
-    <router-view />
+    <ErrorBoundary>
+      <router-view />
+    </ErrorBoundary>
   </DashboardShell>
 </template>
 
 <script>
 import { ElMessage } from "element-plus";
 import DashboardShell from "@/components/layout/DashboardShell.vue";
+import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import { getApiKeyHeaders, uploadActionUrl } from "@/services/api";
 
 export default {
   name: "App",
-  components: { DashboardShell },
+  components: { DashboardShell, ErrorBoundary },
   computed: {
     uploadAction() {
       return uploadActionUrl();

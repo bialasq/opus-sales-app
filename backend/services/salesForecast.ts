@@ -164,14 +164,14 @@ function seriesGapStats(series: DailySeriesPoint[]): {
 /**
  * Prognoza zapotrzebowania na 30 dni (regresja liniowa na szeregu dziennym).
  */
-export function predictFutureSales(
+export async function predictFutureSales(
   filename: string,
   options?: { productName?: string; horizonDays?: number }
-): ForecastResult {
+): Promise<ForecastResult> {
   const horizonDays = Math.min(Math.max(options?.horizonDays ?? 30, 7), 90);
   const productName = options?.productName?.trim();
 
-  const excelData = readWorkbookFromUploads(filename);
+  const excelData = await readWorkbookFromUploads(filename);
   const rows = extractSalesRows(excelData);
   const series = buildDailySeries(rows, productName || undefined);
   const gapInfo = seriesGapStats(series);

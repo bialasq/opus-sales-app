@@ -1,4 +1,5 @@
 import path from "path";
+import { getAppRoot } from "./appRoot";
 
 /** Dozwolone nazwy plików w uploads/ (bez separatorów ścieżki). */
 export const FILENAME_REGEX = /^[A-Za-z0-9._-]+\.(xlsx|xls)$/;
@@ -15,7 +16,7 @@ let uploadsDirCache: string | null = null;
 /** Absolutna ścieżka katalogu uploads/ (spójna w całym backendzie). */
 export function getUploadsDir(): string {
   if (!uploadsDirCache) {
-    uploadsDirCache = path.resolve(path.join(__dirname, "..", "uploads"));
+    uploadsDirCache = path.resolve(path.join(getAppRoot(), "uploads"));
   }
   return uploadsDirCache;
 }
