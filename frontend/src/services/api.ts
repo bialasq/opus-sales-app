@@ -46,6 +46,13 @@ function getApiRoot(): string {
 
 export const API_ROOT = getApiRoot();
 
+/** Nagłówek API key (VUE_APP_API_KEY) — wspólny dla axios i el-upload. */
+export function getApiKeyHeaders(): Record<string, string> {
+  const key = process.env.VUE_APP_API_KEY?.trim() || "";
+  if (!key) return {};
+  return { "x-api-key": key };
+}
+
 /** Długie wywołania agenta (ReAct + Judge) */
 export const AGENT_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -61,6 +68,7 @@ const client: AxiosInstance = axios.create({
   baseURL: API_ROOT,
   headers: {
     "Content-Type": "application/json",
+    ...getApiKeyHeaders(),
   },
 });
 

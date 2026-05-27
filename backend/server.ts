@@ -12,6 +12,7 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
+import { apiKeyAuth } from "./middleware/auth";
 import { rootLogger } from "./services/appLogger";
 
 dotenv.config({
@@ -84,6 +85,12 @@ const uploadLimiter = rateLimit({
 app.use("/api/", generalApiLimiter);
 app.use("/api/ai/", aiLimiter);
 app.use("/api/upload", uploadLimiter);
+
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+app.use("/api", apiKeyAuth);
 
 const ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
