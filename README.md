@@ -64,6 +64,15 @@ docker compose up
 
 Ports and proxy are documented in `docker-compose.yml` and `frontend/.env.example`.
 
+### Production
+
+- **Deploy:** [docs/deployment.md](docs/deployment.md) — `docker-compose.prod.yml`, Redis, optional S3/MinIO
+- **Architecture:** [docs/architecture.md](docs/architecture.md)
+- **Security:** [SECURITY.md](SECURITY.md)
+- **Privacy / RODO:** [docs/privacy.md](docs/privacy.md)
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **License:** [LICENSE](LICENSE) (MIT)
+
 ### Useful scripts
 
 | Location | Command | Purpose |
