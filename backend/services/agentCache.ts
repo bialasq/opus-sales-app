@@ -1,7 +1,7 @@
-import fs from "fs";
 import crypto from "crypto";
 import type { AiInsightsResponse } from "../shared/api-types";
 import { resolveUploadPath } from "../utils/filePathResolver";
+import { getStorage } from "./storage";
 import { chooseProvider } from "./llmInvoke";
 import { getActivePromptVersion } from "../prompts";
 import { createLogger } from "./appLogger";
@@ -24,23 +24,23 @@ function cacheRedisKey(key: string): string {
   return `agentcache:${key}`;
 }
 
-function fileFingerprint(filename: string): string {
+async function fileFingerprint(filename: string): Promise<string> {
   try {
-    const filePath = resolveUploadPath(filename);
-    if (!fs.existsSync(filePath)) return `${filename}:missing`;
-    const stat = fs.statSync(filePath);
-    return `${filename}:${stat.mtimeMs}:${stat.size}`;
+    resolveUploadPath(filename);
+    const meta = await getStorage().getMetadata(filename);
+    if (!meta) return `${filename}:missing`;
+    return `${filename}:${meta.lastModified.getTime()}:${meta.size}`;
   } catch {
     return `${filename}:invalid`;
   }
 }
 
 /** Klucz cache: plik (mtime+size) + wersja promptu + dostawca + parametry */
-export function buildCacheKey(
+export async function buildCacheKey(
   filename: string,
   params: Record<string, unknown> = {}
-): string {
-  const filePart = fileFingerprint(filename);
+): Promise<string> {
+  const filePart = await fileFingerprint(filename);
   const paramPart = crypto
     .createHash("md5")
     .update(JSON.stringify(params))

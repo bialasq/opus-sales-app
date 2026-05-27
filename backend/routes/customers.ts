@@ -3,10 +3,8 @@ import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/customers");
 import { validateBody } from "../middleware/validateRequest";
-import {
-  InvalidFilenameError,
-  resolveUploadPath,
-} from "../utils/filePathResolver";
+import { InvalidFilenameError } from "../utils/filePathResolver";
+import { readWorkbookFromUpload } from "../utils/uploadReader";
 import { filenameBodySchema, visitPlanBodySchema } from "../schemas/apiRequests";
 import type { CustomerProfilesResponse, VisitPlanResponse } from "../types/api";
 
@@ -26,8 +24,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = resolveUploadPath(filename);
-      const data = excelService.readFile(filePath);
+      const data = await readWorkbookFromUpload(filename);
       const customerProfiles = excelService.analyzeCustomerData(data);
       res.json(customerProfiles);
     } catch (error) {

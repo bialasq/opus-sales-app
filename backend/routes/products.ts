@@ -3,18 +3,11 @@ import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/products");
 import { validateBody } from "../middleware/validateRequest";
-import {
-  InvalidFilenameError,
-  resolveUploadPath,
-} from "../utils/filePathResolver";
+import { InvalidFilenameError } from "../utils/filePathResolver";
+import { readWorkbookFromUpload } from "../utils/uploadReader";
 import { filenameBodySchema, promotionsBodySchema } from "../schemas/apiRequests";
 import type { Product, ProductAnalysisResponse } from "../types/api";
 import { analyzeProductRotationFromWorkbook } from "../services/productRotationFromSales";
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const excelService = require("../services/excelService") as {
-  readFile: (p: string) => Record<string, Record<string, unknown>[]>;
-};
 
 const router = express.Router();
 
@@ -24,8 +17,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = resolveUploadPath(filename);
-      const data = excelService.readFile(filePath);
+      const data = await readWorkbookFromUpload(filename);
 
       const productAnalysis = analyzeProductRotationFromWorkbook(data);
 

@@ -24,6 +24,7 @@ import { rootLogger } from "./services/appLogger";
 import { appRoot } from "./loadEnv";
 import { ValidationError } from "./errors";
 import { closeRedis } from "./services/redis";
+import { getStorage } from "./services/storage";
 
 export let isAppReady = false;
 
@@ -130,22 +131,8 @@ export function createApp(): Application {
   const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
   const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
 
-  const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      cb(null, uploadsDir);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      const baseName = path
-        .basename(file.originalname, ext)
-        .replace(/[^A-Za-z0-9._-]/g, "_")
-        .slice(0, 100);
-      cb(null, `${randomUUID()}-${baseName}${ext}`);
-    },
-  });
-
   const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: MAX_UPLOAD_SIZE },
     fileFilter: (_req, file, cb) => {
       if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
@@ -169,17 +156,28 @@ export function createApp(): Application {
     },
   });
 
-  const handleUpload: RequestHandler = (req, res, _next) => {
-    const file = req.file;
-    if (!file) {
-      res.status(400).json({ error: "Brak pliku" });
-      return;
+  const handleUpload: RequestHandler = async (req, res, next) => {
+    try {
+      const file = req.file;
+      if (!file?.buffer) {
+        res.status(400).json({ error: "Brak pliku" });
+        return;
+      }
+      const ext = path.extname(file.originalname).toLowerCase();
+      const baseName = path
+        .basename(file.originalname, ext)
+        .replace(/[^A-Za-z0-9._-]/g, "_")
+        .slice(0, 100);
+      const key = `${randomUUID()}-${baseName}${ext}`;
+      await getStorage().putFile(key, file.buffer);
+      res.json({
+        filename: key,
+        originalName: file.originalname,
+        size: file.size,
+      });
+    } catch (err) {
+      next(err);
     }
-    res.json({
-      filename: file.filename,
-      originalName: file.originalname,
-      size: file.size,
-    });
   };
 
   app.post("/api/upload", upload.single("file"), handleUpload);

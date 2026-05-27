@@ -93,11 +93,11 @@ export function resolveExpertPersona(facts: AnalystFacts): StrategistExpertPerso
   return "store_manager";
 }
 
-function strategistSystemPrompt(
+async function strategistSystemPrompt(
   ctx: SalesWorkbookContext,
   persona: StrategistExpertPersona
-): string {
-  const productNames = ctx.getProducts().map((p) => p.name);
+): Promise<string> {
+  const productNames = (await ctx.getProducts()).map((p) => p.name);
   let personaBlock = "";
   if (persona === "supply_chain_manager") personaBlock = STRATEGIST_PERSONA_SUPPLY_CHAIN;
   else if (persona === "financial_controller") personaBlock = STRATEGIST_PERSONA_FINANCIAL;
@@ -189,7 +189,7 @@ async function buildAnalystUnavailableFacts(
   } catch {
     alerts = undefined;
   }
-  const top = ctx.getProducts().slice(0, 5);
+  const top = (await ctx.getProducts()).slice(0, 5);
   return {
     summary:
       "Analiza wstępna niedostępna — działaj na surowych danych z narzędzi i kontekstu pliku.",
@@ -300,7 +300,7 @@ export async function runAnalystPass(
   }
 
   emitStep(hooks, "Analityk bada dane…");
-  const top = ctx.getProducts().slice(0, 5);
+  const top = (await ctx.getProducts()).slice(0, 5);
   emitStep(hooks, "Wywołuję: getLowStockAlerts…");
   const alerts = await executeAgentTool(ctx, "getLowStockAlerts", {
     rotationThreshold: 0.35,
@@ -372,8 +372,9 @@ async function runStrategistReActOpenAI(
 
   let usage = { ...usageAcc };
   emitStep(hooks, "Strateg wybiera narzędzia…");
+  const systemPrompt = await strategistSystemPrompt(ctx, strategistCtx.persona);
   const messages: OpenAIMessage[] = [
-    { role: "system", content: strategistSystemPrompt(ctx, strategistCtx.persona) },
+    { role: "system", content: systemPrompt },
     {
       role: "user",
       content: buildStrategistUserContent(
@@ -716,6 +717,7 @@ async function runStrategistReActAnthropic(
     }
 
     let res: Response;
+    const systemPrompt = await strategistSystemPrompt(ctx, strategistCtx.persona);
     try {
       res = await withRateLimitRetry(() =>
       fetch("https://api.anthropic.com/v1/messages", {
@@ -728,7 +730,7 @@ async function runStrategistReActAnthropic(
         body: JSON.stringify({
           model,
           max_tokens: 4096,
-          system: strategistSystemPrompt(ctx, strategistCtx.persona),
+          system: systemPrompt,
           tools: toolDefs,
           messages,
         }),

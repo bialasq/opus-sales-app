@@ -162,8 +162,8 @@ function buildRouteResponse(
   };
 }
 
-function buildFallbackPlan(filename: string): RoutePlanResponse {
-  const { candidates } = buildRouteVisitCandidates(filename);
+async function buildFallbackPlan(filename: string): Promise<RoutePlanResponse> {
+  const { candidates } = await buildRouteVisitCandidates(filename);
   const picked = candidates.filter((c) => c.reachableFromBase).slice(0, 6);
   const rawStops: RoutePlanStop[] = picked.map((c) => {
     const coords = resolveCityCoords(c.city);
@@ -208,13 +208,13 @@ export async function planSalesRoute(
 ): Promise<RoutePlanResponse> {
   const provider = chooseProvider();
   if (provider === "none") {
-    return buildFallbackPlan(filename);
+    return await buildFallbackPlan(filename);
   }
 
   const ctx = new SalesWorkbookContext(filename);
   const tools = toolsToOpenAIFormat(getRoutePlannerTools());
   const reactTrace: ReActTraceStep[] = [];
-  const candidatesPreview = buildRouteVisitCandidates(filename);
+  const candidatesPreview = await buildRouteVisitCandidates(filename);
 
   const system =
     ROUTE_PLANNER_SYSTEM_PROMPT +
@@ -229,7 +229,7 @@ export async function planSalesRoute(
 
   if (provider === "openai") {
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return buildFallbackPlan(filename);
+    if (!apiKey) return await buildFallbackPlan(filename);
     const client = new OpenAI({ apiKey });
     const model =
       process.env.AI_STRATEGIST_MODEL || process.env.AI_MODEL || "gpt-4o";
@@ -316,7 +316,7 @@ export async function planSalesRoute(
     }
   }
 
-  const fallback = buildFallbackPlan(filename);
+  const fallback = await buildFallbackPlan(filename);
   fallback.reactTrace = reactTrace;
   return fallback;
 }

@@ -1,9 +1,8 @@
 import type { ProductRotationMetricRow } from "../shared/api-types";
-import { resolveUploadPath } from "../utils/filePathResolver";
+import { readWorkbookFromUpload } from "../utils/uploadReader";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const excelService = require("./excelService") as {
-  readFile: (filePath: string) => Record<string, Record<string, unknown>[]>;
   analyzeVisits: (visitData: Record<string, unknown>[]) => Record<string, unknown>;
   analyzeSales: (salesData: Record<string, unknown>[]) => {
     salesByProduct: Record<
@@ -59,18 +58,16 @@ export function extractSalesRows(
   return [];
 }
 
-export function readWorkbookFromUploads(filename: string): Record<
-  string,
-  Record<string, unknown>[]
-> {
-  const filePath = resolveUploadPath(filename);
-  return excelService.readFile(filePath);
+export async function readWorkbookFromUploads(
+  filename: string
+): Promise<Record<string, Record<string, unknown>[]>> {
+  return readWorkbookFromUpload(filename);
 }
 
-export function buildProductRotationMetrics(
+export async function buildProductRotationMetrics(
   filename: string
-): ProductRotationMetricRow[] {
-  const excelData = readWorkbookFromUploads(filename);
+): Promise<ProductRotationMetricRow[]> {
+  const excelData = await readWorkbookFromUploads(filename);
   const rows = extractSalesRows(excelData);
   if (!rows.length) return [];
 
@@ -97,12 +94,12 @@ export function buildProductRotationMetrics(
   });
 }
 
-export function analyzeSalesFromFile(filename: string) {
-  const rows = extractSalesRows(readWorkbookFromUploads(filename));
+export async function analyzeSalesFromFile(filename: string) {
+  const rows = extractSalesRows(await readWorkbookFromUploads(filename));
   return excelService.analyzeSales(rows as Record<string, unknown>[]);
 }
 
-export function analyzeVisitsFromFile(filename: string) {
-  const rows = extractVisitRows(readWorkbookFromUploads(filename));
+export async function analyzeVisitsFromFile(filename: string) {
+  const rows = extractVisitRows(await readWorkbookFromUploads(filename));
   return excelService.analyzeVisits(rows as Record<string, unknown>[]);
 }

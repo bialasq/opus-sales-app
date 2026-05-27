@@ -47,14 +47,14 @@ function priorityFromOpis(opis: string): { score: number; label: "high" | "mediu
 /**
  * Kandydaci do trasy z arkusza Wizyty (+ wzbogacenie o Sprzedaż).
  */
-export function buildRouteVisitCandidates(filename: string): {
+export async function buildRouteVisitCandidates(filename: string): Promise<{
   baseCity: string;
   candidates: RouteVisitCandidate[];
   matrixNote: string;
-} {
-  const rows = extractVisitRows(readWorkbookFromUploads(filename));
-  const visitAnalysis = analyzeVisitsFromFile(filename);
-  const sales = analyzeSalesFromFile(filename);
+}> {
+  const rows = extractVisitRows(await readWorkbookFromUploads(filename));
+  const visitAnalysis = await analyzeVisitsFromFile(filename);
+  const sales = await analyzeSalesFromFile(filename);
   const byCustomer = sales.salesByCustomer || {};
 
   const byKey = new Map<string, RouteVisitCandidate>();

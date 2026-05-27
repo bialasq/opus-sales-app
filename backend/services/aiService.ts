@@ -361,7 +361,7 @@ export async function getAiInsightsForFile(
 
   const userInstructions = options.userInstructions?.trim() || undefined;
 
-  const cacheKey = buildCacheKey(filename, {
+  const cacheKey = await buildCacheKey(filename, {
 
     userInstructions: userInstructions ?? "",
 
@@ -409,7 +409,7 @@ export async function getAiInsightsForFile(
 
   const ctx = new SalesWorkbookContext(filename);
 
-  const products = ctx.getProducts();
+  const products = await ctx.getProducts();
 
   const provider = chooseProvider();
 

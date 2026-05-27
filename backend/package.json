@@ -17,9 +17,12 @@
     "test:filePath": "vitest run tests/filePathResolver.test.ts",
     "test:budget": "vitest run tests/budgetManager.test.ts",
     "test:auth": "vitest run tests/auth.test.ts",
-    "test:agent": "tsx scripts/agentUnitTests.ts"
+    "test:agent": "tsx scripts/agentUnitTests.ts",
+    "gc:uploads": "tsx scripts/gcUploads.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1055.0",
+    "@aws-sdk/s3-request-presigner": "^3.1055.0",
     "axios": "^1.16.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

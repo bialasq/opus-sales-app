@@ -30,6 +30,24 @@ class ExcelService {
     }
   }
 
+  readBuffer(buffer) {
+    try {
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const data = {};
+      workbook.SheetNames.forEach((sheetName) => {
+        const worksheet = workbook.Sheets[sheetName];
+        data[sheetName] = XLSX.utils.sheet_to_json(worksheet, {
+          raw: false,
+          dateNF: "dd.mm.yyyy",
+        });
+      });
+      return data;
+    } catch (error) {
+      console.error("Błąd odczytu bufora Excel:", error);
+      throw error;
+    }
+  }
+
   parseDate(dateString) {
     if (!dateString) return new Date();
 

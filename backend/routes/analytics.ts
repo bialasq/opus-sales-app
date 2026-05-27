@@ -2,10 +2,8 @@ import express, { type Request, type Response } from "express";
 import path from "path";
 import fs from "fs";
 import { validateBody } from "../middleware/validateRequest";
-import {
-  InvalidFilenameError,
-  resolveUploadPath,
-} from "../utils/filePathResolver";
+import { InvalidFilenameError } from "../utils/filePathResolver";
+import { readWorkbookFromUpload } from "../utils/uploadReader";
 import {
   filenameBodySchema,
   generateReportBodySchema,
@@ -81,8 +79,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = resolveUploadPath(filename);
-      const workbook = excelService.readFile(filePath);
+      const workbook = await readWorkbookFromUpload(filename);
       const data = flattenWorkbookRows(workbook);
 
       const kpis = {
@@ -171,8 +168,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = resolveUploadPath(filename);
-      const excelData = excelService.readFile(filePath);
+      const excelData = await readWorkbookFromUpload(filename);
 
       const visitAnalysis = excelData["Wizyty"]
         ? excelService.analyzeVisits(excelData["Wizyty"])
