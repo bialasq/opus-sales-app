@@ -14,9 +14,12 @@ import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { apiKeyAuth } from "./middleware/auth";
 import { rootLogger } from "./services/appLogger";
+import { getAppRoot } from "./utils/appRoot";
+
+const appRoot = getAppRoot();
 
 dotenv.config({
-  path: path.join(__dirname, ".env"),
+  path: path.join(appRoot, ".env"),
   override: process.env.NODE_ENV !== "production",
 });
 
@@ -31,7 +34,7 @@ const adminRoutes = require("./routes/admin") as Router;
 const app: Application = express();
 const PORT: number = Number(process.env.PORT) || 3000;
 
-const uploadsDir = path.join(__dirname, "uploads");
+const uploadsDir = path.join(appRoot, "uploads");
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -155,7 +158,7 @@ const handleUpload: RequestHandler = (req, res, _next) => {
 app.post("/api/upload", upload.single("file"), handleUpload);
 
 const testDataDownload: RequestHandler = (_req, res, _next) => {
-  const testFilePath = path.join(__dirname, "dane_testowe.xlsx");
+  const testFilePath = path.join(appRoot, "dane_testowe.xlsx");
   if (!fs.existsSync(testFilePath)) {
     res.status(404).json({
       error: "Plik testowy nie istnieje. Uruchom: npm run generate-test-data",
