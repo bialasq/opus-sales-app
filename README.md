@@ -1,5 +1,7 @@
 # Opus Sales — Sales analytics
 
+[![CI](https://github.com/bialasq/opus-sales-app/actions/workflows/ci.yml/badge.svg)](https://github.com/bialasq/opus-sales-app/actions/workflows/ci.yml)
+
 This README is bilingual: **English first**, then Polish.
 
 ---
