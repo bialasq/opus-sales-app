@@ -1,4 +1,16 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   backend:
     build:
       context: ./backend
@@ -11,6 +23,10 @@ services:
       NODE_ENV: production
       PORT: "3000"
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
     volumes:
       - backend_uploads:/app/uploads
       - backend_logs:/app/logs
@@ -46,3 +62,4 @@ services:
 volumes:
   backend_uploads:
   backend_logs:
+  redis_data:

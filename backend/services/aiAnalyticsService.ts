@@ -68,7 +68,7 @@ function readTraceFiles(): Array<{
   return out.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 }
 
-export function getAiPerformanceStats(): AiPerformanceStats {
+export async function getAiPerformanceStats(): Promise<AiPerformanceStats> {
   const traces = readTraceFiles();
   const nonCacheRuns = traces.filter((t) => !t.from_cache);
   const runsForAvg = nonCacheRuns.length > 0 ? nonCacheRuns : traces;
@@ -101,7 +101,7 @@ export function getAiPerformanceStats(): AiPerformanceStats {
       ? Number(((hallucinationCount / totalRuns) * 100).toFixed(1))
       : null;
 
-  const cacheStats = getCacheStats();
+  const cacheStats = await getCacheStats();
 
   return {
     totalRuns,
@@ -125,6 +125,6 @@ export function getAiPerformanceStats(): AiPerformanceStats {
   };
 }
 
-export function clearAiCache(): { cleared: number } {
+export async function clearAiCache(): Promise<{ cleared: number }> {
   return clearAllAgentCache();
 }

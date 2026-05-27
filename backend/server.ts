@@ -23,6 +23,7 @@ import { requestIdMiddleware } from "./middleware/requestId";
 import { rootLogger } from "./services/appLogger";
 import { appRoot } from "./loadEnv";
 import { ValidationError } from "./errors";
+import { closeRedis } from "./services/redis";
 
 export let isAppReady = false;
 
@@ -276,11 +277,16 @@ export function startServer(): ReturnType<Application["listen"]> {
     rootLogger.info(`Received ${signal}, starting graceful shutdown`);
     isAppReady = false;
 
-    server.close((closeErr) => {
+    server.close(async (closeErr) => {
       if (closeErr) {
         rootLogger.error("Error during server close", closeErr);
         process.exit(1);
         return;
+      }
+      try {
+        await closeRedis();
+      } catch (redisErr) {
+        rootLogger.warn("Redis close error", redisErr);
       }
       rootLogger.info("Server closed cleanly");
       process.exit(0);

@@ -371,7 +371,7 @@ export async function getAiInsightsForFile(
 
   if (!options.skipCache) {
 
-    const cached = getCachedInsights(cacheKey);
+    const cached = await getCachedInsights(cacheKey);
 
     if (cached) {
 
@@ -515,7 +515,7 @@ export async function getAiInsightsForFile(
 
     );
 
-    setCachedInsights(cacheKey, response);
+    await setCachedInsights(cacheKey, response);
 
     return response;
 
@@ -589,11 +589,8 @@ export function startAiInsightsJob(
 
   const trimmed = userInstructions?.trim() || undefined;
 
-  createJob(sessionId, filename, trimmed);
-
-
-
   void (async () => {
+    await createJob(sessionId, filename, trimmed);
 
     try {
 
@@ -607,19 +604,19 @@ export function startAiInsightsJob(
 
         hooks: {
 
-          onStep: (step) => updateJobStep(sessionId, step),
+          onStep: (step) => void updateJobStep(sessionId, step),
 
         },
 
       });
 
-      completeJob(sessionId, response);
+      await completeJob(sessionId, response);
 
     } catch (e) {
 
       const msg = e instanceof Error ? e.message : String(e);
 
-      failJob(sessionId, msg);
+      await failJob(sessionId, msg);
 
     }
 
@@ -633,9 +630,9 @@ export function startAiInsightsJob(
 
 
 
-export function getAiInsightsJobStatus(sessionId: string) {
+export async function getAiInsightsJobStatus(sessionId: string) {
 
-  const job = getJob(sessionId);
+  const job = await getJob(sessionId);
 
   if (!job) return null;
 
