@@ -10,7 +10,7 @@
   <slot v-else />
 </template>
 
-<script setup lang="ts">
+<script setup>
 import { ref, onErrorCaptured } from "vue";
 
 const hasError = ref(false);
