@@ -10,6 +10,8 @@
     "build": "npm run typecheck",
     "generate-test-data": "node utils/generateTestData.js",
     "benchmark": "tsx scripts/benchmark.ts",
+    "test": "vitest run",
+    "test:filePath": "vitest run tests/filePathResolver.test.ts",
     "test:agent": "tsx scripts/agentUnitTests.ts"
   },
   "dependencies": {
@@ -33,6 +35,7 @@
     "@types/node": "^20.14.0",
     "nodemon": "^3.0.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^3.2.4"
   }
 }

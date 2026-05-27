@@ -2,8 +2,11 @@ import express, { type Request, type Response } from "express";
 import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/products");
-import path from "path";
 import { validateBody } from "../middleware/validateRequest";
+import {
+  InvalidFilenameError,
+  resolveUploadPath,
+} from "../utils/filePathResolver";
 import { filenameBodySchema, promotionsBodySchema } from "../schemas/apiRequests";
 import type { Product, ProductAnalysisResponse } from "../types/api";
 import { analyzeProductRotationFromWorkbook } from "../services/productRotationFromSales";
@@ -21,7 +24,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = path.join(__dirname, "..", "uploads", filename);
+      const filePath = resolveUploadPath(filename);
       const data = excelService.readFile(filePath);
 
       const productAnalysis = analyzeProductRotationFromWorkbook(data);
@@ -56,6 +59,11 @@ router.post(
 
       res.json(out);
     } catch (error) {
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w /products/analysis", { detail: error.message });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       log.error("Błąd analizy produktów:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });

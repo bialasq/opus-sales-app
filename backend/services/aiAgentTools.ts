@@ -1,6 +1,6 @@
 import fs from "fs";
-import path from "path";
 import type { ProductRotationMetricRow } from "../shared/api-types";
+import { getUploadsDir, resolveUploadPath } from "../utils/filePathResolver";
 import {
   analyzeSalesFromFile,
   buildProductRotationMetrics,
@@ -13,8 +13,6 @@ import {
 } from "./routeMatrix";
 import { buildRouteVisitCandidates } from "./routeVisitCandidates";
 import { checkBridgeAndFerry } from "./routeFerryChecks";
-
-const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
 
 /** Metadane narzędzia dla OpenAI / Anthropic function calling (Cursor-friendly). */
 export interface AIAgentTool {
@@ -177,7 +175,13 @@ async function toolCompareWithPreviousPeriod(
   ctx: SalesWorkbookContext,
   _args: Record<string, unknown>
 ): Promise<unknown> {
-  const currentPath = path.join(UPLOADS_DIR, ctx.filename);
+  const uploadsDir = getUploadsDir();
+  let currentPath: string;
+  try {
+    currentPath = resolveUploadPath(ctx.filename);
+  } catch {
+    return { found: false, message: "Brak bieżącego pliku" };
+  }
   if (!fs.existsSync(currentPath)) {
     return { found: false, message: "Brak bieżącego pliku" };
   }
@@ -187,13 +191,19 @@ async function toolCompareWithPreviousPeriod(
   const currentRevenue = currentProducts.reduce((s, p) => s + p.totalValue, 0);
 
   const candidates = fs
-    .readdirSync(UPLOADS_DIR)
+    .readdirSync(uploadsDir)
     .filter((f) => /\.(xlsx|xls)$/i.test(f) && f !== ctx.filename)
     .map((name) => {
-      const p = path.join(UPLOADS_DIR, name);
+      let p: string;
+      try {
+        p = resolveUploadPath(name);
+      } catch {
+        return null;
+      }
       const st = fs.statSync(p);
       return { name, mtime: st.mtimeMs };
     })
+    .filter((f): f is { name: string; mtime: number } => f !== null)
     .filter((f) => f.mtime < currentStat.mtimeMs)
     .sort((a, b) => b.mtime - a.mtime);
 

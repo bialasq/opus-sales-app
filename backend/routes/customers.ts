@@ -2,8 +2,11 @@ import express, { type Request, type Response } from "express";
 import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/customers");
-import path from "path";
 import { validateBody } from "../middleware/validateRequest";
+import {
+  InvalidFilenameError,
+  resolveUploadPath,
+} from "../utils/filePathResolver";
 import { filenameBodySchema, visitPlanBodySchema } from "../schemas/apiRequests";
 import type { CustomerProfilesResponse, VisitPlanResponse } from "../types/api";
 
@@ -23,11 +26,16 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = path.join(__dirname, "..", "uploads", filename);
+      const filePath = resolveUploadPath(filename);
       const data = excelService.readFile(filePath);
       const customerProfiles = excelService.analyzeCustomerData(data);
       res.json(customerProfiles);
     } catch (error) {
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w /customers/profile", { detail: error.message });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       log.error("Błąd profilowania klientów:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });
