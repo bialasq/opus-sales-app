@@ -1,37 +1,28 @@
+import "./loadEnv";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import dotenv from "dotenv";
 import express, {
   type Application,
   type ErrorRequestHandler,
   type RequestHandler,
-  type Router,
 } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
+import analyticsRoutes from "./routes/analytics";
+import customersRoutes from "./routes/customers";
+import productsRoutes from "./routes/products";
+import paymentsRoutes from "./routes/payments";
+import aiRoutes from "./routes/ai";
+import adminRoutes from "./routes/admin";
 import { apiKeyAuth } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { requestIdMiddleware } from "./middleware/requestId";
 import { rootLogger } from "./services/appLogger";
-import { getAppRoot } from "./utils/appRoot";
+import { appRoot } from "./loadEnv";
 import { ValidationError } from "./errors";
-
-const appRoot = getAppRoot();
-
-dotenv.config({
-  path: path.join(appRoot, ".env"),
-  override: process.env.NODE_ENV !== "production",
-});
-
-const analyticsRoutes = require("./routes/analytics") as Router;
-const customersRoutes = require("./routes/customers") as Router;
-const productsRoutes = require("./routes/products") as Router;
-const paymentsRoutes = require("./routes/payments") as Router;
-const aiRoutes = require("./routes/ai") as Router;
-const adminRoutes = require("./routes/admin") as Router;
 
 export let isAppReady = false;
 

@@ -250,5 +250,5 @@ router.post("/cache/clear", (_req: Request, res: Response) => {
 
 
 
-module.exports = router;
+export default router;
 

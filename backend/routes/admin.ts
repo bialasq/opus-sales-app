@@ -7,4 +7,4 @@ router.get("/budget", (_req: Request, res: Response) => {
   res.json(getBudgetStatus());
 });
 
-module.exports = router;
+export default router;
