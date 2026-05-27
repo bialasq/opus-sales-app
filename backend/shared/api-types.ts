@@ -90,7 +90,7 @@ export interface AiInsightsMeta {
   from_cache?: boolean;
   cacheAge_ms?: number;
   partial?: boolean;
-  partialReason?: "max_iterations" | "token_limit";
+  partialReason?: "max_iterations" | "token_limit" | "budget_exceeded";
   guardrailMessage?: string;
   current_step?: string;
 }
@@ -255,6 +255,8 @@ export interface AnalyticsAgentInsightsMeta {
   model?: string;
   orchestration?: string;
   toolsUsed?: string[];
+  budgetExceeded?: boolean;
+  llmError?: string;
 }
 
 export interface AnalyticsAgentInsightsResponse {
@@ -335,6 +337,8 @@ export interface RoutePlanMeta {
   warnings?: string[];
   /** Dystans pełnej pętli Olsztyn → … → Olsztyn (km) */
   fullLoopKm?: number;
+  budgetExceeded?: boolean;
+  llmError?: string;
 }
 
 /** POST /api/ai/plan-route */

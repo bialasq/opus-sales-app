@@ -1,8 +1,14 @@
-import fs from "fs";
+import fs from "fs/promises";
 import path from "path";
 import type { SuggestionFeedbackVerdict } from "../shared/api-types";
+import { createLogger } from "./appLogger";
+import {
+  TRACES_DIR,
+  buildSessionFilenameIndex,
+  readFeedbackJsonlLines,
+} from "./traceLogReader";
 
-const TRACES_DIR = path.join(__dirname, "..", "logs", "traces");
+const log = createLogger("knowledgeService");
 
 /** Max rekordów feedbacku wczytywanych do rankingu (oszczędność I/O + prompt) */
 const MAX_FEEDBACK_LOAD =
@@ -33,44 +39,47 @@ export type RankedExample = {
   filename?: string;
 };
 
-function ensureTracesDir(): void {
-  if (!fs.existsSync(TRACES_DIR)) {
-    fs.mkdirSync(TRACES_DIR, { recursive: true });
+async function ensureTracesDir(): Promise<void> {
+  try {
+    await fs.mkdir(TRACES_DIR, { recursive: true });
+  } catch (err) {
+    log.warn("Could not ensure traces directory exists", { detail: err });
   }
 }
 
-/** sessionId → filename z plików trace JSON */
-export function buildSessionFilenameIndex(): Map<string, string> {
-  const map = new Map<string, string>();
-  if (!fs.existsSync(TRACES_DIR)) return map;
+export { buildSessionFilenameIndex };
 
-  for (const file of fs.readdirSync(TRACES_DIR)) {
-    if (!file.endsWith(".json") || file.includes("feedback")) continue;
-    try {
-      const raw = fs.readFileSync(path.join(TRACES_DIR, file), "utf8");
-      const data = JSON.parse(raw) as { sessionID?: string; filename?: string };
-      if (data.sessionID && data.filename) {
-        map.set(data.sessionID, data.filename);
-      }
-    } catch {
-      /* skip corrupt */
-    }
-  }
-  return map;
-}
+export async function loadAllFeedback(
+  sessionIndex?: Map<string, string>
+): Promise<FeedbackRecord[]> {
+  await ensureTracesDir();
 
-export function loadAllFeedback(sessionIndex?: Map<string, string>): FeedbackRecord[] {
-  ensureTracesDir();
-  if (!fs.existsSync(TRACES_DIR)) return [];
-
-  const index = sessionIndex ?? buildSessionFilenameIndex();
+  const index = sessionIndex ?? (await buildSessionFilenameIndex());
   const records: FeedbackRecord[] = [];
 
-  for (const file of fs.readdirSync(TRACES_DIR)) {
-    if (!file.endsWith("-feedback.jsonl")) continue;
+  let files: string[];
+  try {
+    files = await fs.readdir(TRACES_DIR);
+  } catch (err) {
+    const code =
+      typeof err === "object" && err !== null && "code" in err
+        ? (err as NodeJS.ErrnoException).code
+        : undefined;
+    if (code === "ENOENT") {
+      return [];
+    }
+    log.warn("Could not list traces directory for feedback", { detail: err });
+    return [];
+  }
+
+  for (const file of files) {
+    if (!file.endsWith("-feedback.jsonl")) {
+      continue;
+    }
     const sessionId = file.replace(/-feedback\.jsonl$/, "");
     const filePath = path.join(TRACES_DIR, file);
-    const lines = fs.readFileSync(filePath, "utf8").split("\n").filter(Boolean);
+    const lines = await readFeedbackJsonlLines(filePath);
+
     for (const line of lines) {
       try {
         const row = JSON.parse(line) as FeedbackRecord;
@@ -80,8 +89,8 @@ export function loadAllFeedback(sessionIndex?: Map<string, string>): FeedbackRec
           filename: row.filename || index.get(row.sessionId || sessionId),
           timestamp: row.timestamp || new Date(0).toISOString(),
         });
-      } catch {
-        /* skip */
+      } catch (err) {
+        log.warn(`Skipping invalid feedback line in ${file}`, { detail: err });
       }
     }
   }
@@ -148,12 +157,12 @@ function rankExamples(
 /**
  * Vector-less RAG: przykłady approve + lista reject dla pliku.
  */
-export function buildStrategistKnowledgeContext(
+export async function buildStrategistKnowledgeContext(
   filename: string,
   productNames: string[]
-): string {
-  const sessionIndex = buildSessionFilenameIndex();
-  const allFeedback = loadAllFeedback(sessionIndex);
+): Promise<string> {
+  const sessionIndex = await buildSessionFilenameIndex();
+  const allFeedback = await loadAllFeedback(sessionIndex);
   const parts: string[] = [];
 
   const positive = rankExamples(allFeedback, filename, productNames, "approve");

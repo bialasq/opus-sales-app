@@ -1,7 +1,7 @@
 <template>
   <div
     v-loading="loading"
-    element-loading-text="Generowanie analizy — zwykle 15–45 sekund…"
+    element-loading-text="Generowanie analizy — zwykle 30–90 sekund…"
     class="expert-ai-panel"
   >
     <el-alert
@@ -81,11 +81,14 @@
 </template>
 
 <script>
-import { ref, computed, watch } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useStore } from "vuex";
 import { ElMessage } from "element-plus";
-import api from "@/services/api";
-import { pollAiInsightsJob, runAiInsightsJob } from "@/services/api";
+import api, {
+  getLlmStatus,
+  pollAiInsightsJob,
+  runAiInsightsJob,
+} from "@/services/api";
 import AgenticTraceDialog from "@/components/shared/AgenticTraceDialog.vue";
 
 export default {
@@ -107,6 +110,7 @@ export default {
     const traceDialogOpen = ref(false);
     const traceLoading = ref(false);
     const agentStep = ref("");
+    const serverLlm = ref(null);
 
     const currentFile = computed(() => store.state.currentFile || "");
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -114,23 +118,55 @@ export default {
       () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0
     );
 
+    const isStaleRulesResult = (m) =>
+      Boolean(
+        serverLlm.value?.available &&
+          m &&
+          (m.provider === "fallback" || m.llmAvailable === false) &&
+          !String(m.provider || "").includes("error") &&
+          !String(m.provider || "").includes("parse")
+      );
+
     const metaAlertType = computed(() => {
       const m = expert.value?.meta;
+      if (isStaleRulesResult(m)) return "info";
       if (m?.llmAvailable === false || m?.provider === "fallback") return "warning";
       if (String(m?.provider || "").includes("fallback")) return "warning";
+      if (!m?.provider && serverLlm.value?.available) return "success";
+      if (!m?.provider && serverLlm.value && !serverLlm.value.available) return "warning";
       return "success";
     });
 
     const metaLine = computed(() => {
       const m = expert.value?.meta;
-      if (!m?.provider) return "";
-      if (m.setupHint && m.llmAvailable === false) {
+
+      if (!m?.provider) {
+        if (serverLlm.value?.available) {
+          return `Backend gotowy (LLM: ${serverLlm.value.provider}). Kliknij „Generuj analizę ekspercką AI”.`;
+        }
+        if (serverLlm.value && !serverLlm.value.available) {
+          return (
+            serverLlm.value.hint ||
+            "Brak klucza LLM w backend/.env — dostępny będzie tryb regułowy."
+          );
+        }
+        return "";
+      }
+
+      if (isStaleRulesResult(m)) {
+        return "Ten wynik powstał w trybie regułowym (stary backend bez klucza). Kliknij „Generuj” ponownie — LLM jest już skonfigurowany.";
+      }
+
+      if (m.llmAvailable === false && m.setupHint) {
         return m.setupHint;
       }
       const p = m.provider;
       if (p === "fallback" || m.llmAvailable === false) {
+        if (serverLlm.value?.available) {
+          return "Tryb regułowy (błąd lub timeout modelu). Kliknij „Generuj” ponownie — klucz API jest skonfigurowany.";
+        }
         return (
-          m.setupHint ||
+          serverLlm.value?.hint ||
           "Tryb regułowy: brak klucza API. Ustaw OPENAI_API_KEY lub ANTHROPIC_API_KEY w backend/.env i zrestartuj backend."
         );
       }
@@ -138,6 +174,14 @@ export default {
         return m.setupHint || `Tryb awaryjny (${p}) — sprawdź klucz API i model w .env.`;
       }
       return `Analiza LLM: ${p}${m.model ? ` · ${m.model}` : ""}`;
+    });
+
+    onMounted(async () => {
+      try {
+        serverLlm.value = await getLlmStatus();
+      } catch {
+        serverLlm.value = null;
+      }
     });
 
     const tagType = (p) => {
@@ -215,9 +259,11 @@ export default {
       loading.value = true;
       expert.value = null;
       try {
-        const { data } = await api.post("/analytics/comprehensive-expert-ai", {
-          analysisData: props.analysisData,
-        });
+        const { data } = await api.post(
+          "/analytics/comprehensive-expert-ai",
+          { analysisData: props.analysisData },
+          { timeout: 200_000 }
+        );
         expert.value = data;
         ElMessage.success("Analiza ekspercka gotowa.");
       } catch (e) {

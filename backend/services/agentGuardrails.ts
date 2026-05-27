@@ -12,7 +12,10 @@ export const MAX_ITERATIONS = Number(process.env.AGENT_MAX_ITERATIONS) || 5;
 export const SESSION_TOKEN_LIMIT =
   Number(process.env.AGENT_SESSION_TOKEN_LIMIT) || 28_000;
 
-export type GuardrailStopReason = "max_iterations" | "token_limit";
+export type GuardrailStopReason =
+  | "max_iterations"
+  | "token_limit"
+  | "budget_exceeded";
 
 export function isTokenLimitExceeded(usage: TokenUsage): boolean {
   return usage.total_tokens >= SESSION_TOKEN_LIMIT;
@@ -35,6 +38,8 @@ export function shouldStopForToolBudget(trace: ReActTraceStep[]): boolean {
 export const GUARDRAIL_MESSAGES: Record<GuardrailStopReason, string> = {
   max_iterations: `Osiągnięto limit ${MAX_ITERATIONS} iteracji ReAct — zwrócono częściowe wyniki.`,
   token_limit: `Osiągnięto limit ${SESSION_TOKEN_LIMIT} tokenów w sesji — zwrócono częściowe wyniki.`,
+  budget_exceeded:
+    "Dzienny budżet wywołań AI został wyczerpany — zwrócono częściowe wyniki. Spróbuj jutro lub zwiększ AI_BUDGET_USD_PER_DAY.",
 };
 
 export type PartialGuardrailMeta = {

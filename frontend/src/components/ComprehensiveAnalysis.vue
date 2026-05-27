@@ -249,6 +249,7 @@ import { ref, computed, onMounted, watch } from "vue";
 import { useStore } from "vuex";
 import { ElMessage } from "element-plus";
 import api, {
+  getApiKeyHeaders,
   uploadActionUrl,
   testDataDownloadUrl,
   planSalesRoute,
@@ -326,7 +327,9 @@ export default {
           return;
         }
 
-        const downloadRes = await fetch(testDataDownloadUrl());
+        const downloadRes = await fetch(testDataDownloadUrl(), {
+          headers: getApiKeyHeaders(),
+        });
         if (!downloadRes.ok) {
           const errText = await downloadRes.text().catch(() => "");
           ElMessage.error(
@@ -351,6 +354,7 @@ export default {
 
         const uploadResponse = await fetch(uploadActionUrl(), {
           method: "POST",
+          headers: getApiKeyHeaders(),
           body: formData,
         });
 

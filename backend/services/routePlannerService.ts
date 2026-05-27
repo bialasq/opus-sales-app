@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type { RoutePlanResponse, RoutePlanStop } from "../shared/api-types";
 import {
   ROUTE_PLANNER_SYSTEM_PROMPT,
@@ -12,9 +11,13 @@ import {
   toolsToOpenAIFormat,
 } from "./aiAgentTools";
 import { createLogger } from "./appLogger";
-import { MAX_ITERATIONS, shouldStopForToolBudget } from "./agentGuardrails";
-import { withRateLimitRetry } from "./llmRetry";
-import { chooseProvider } from "./llmInvoke";
+import { GUARDRAIL_MESSAGES, MAX_ITERATIONS, shouldStopForToolBudget } from "./agentGuardrails";
+import {
+  chooseProvider,
+  invokeOpenAiChatRound,
+  isLlmBudgetExceededError,
+  type OpenAiChatMessage,
+} from "./llmInvoke";
 import {
   FUEL_PLN_PER_KM,
   MAX_DRIVING_HOURS_PER_DAY,
@@ -199,6 +202,26 @@ async function buildFallbackPlan(filename: string): Promise<RoutePlanResponse> {
   );
 }
 
+async function buildBudgetExceededRoutePlan(
+  filename: string,
+  reactTrace: ReActTraceStep[],
+  llmError: string
+): Promise<RoutePlanResponse> {
+  const fb = await buildFallbackPlan(filename);
+  fb.reactTrace = reactTrace;
+  fb.meta = {
+    ...fb.meta,
+    budgetExceeded: true,
+    llmError,
+    orchestration: "sales-route-optimizer-budget",
+  };
+  fb.guardrail_warnings = [
+    ...(fb.guardrail_warnings ?? []),
+    GUARDRAIL_MESSAGES.budget_exceeded,
+  ];
+  return fb;
+}
+
 /**
  * Sales Route Optimizer — dedykowana pętla agenta (Regional Logistics Manager).
  */
@@ -228,13 +251,10 @@ export async function planSalesRoute(
   );
 
   if (provider === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return await buildFallbackPlan(filename);
-    const client = new OpenAI({ apiKey });
     const model =
       process.env.AI_STRATEGIST_MODEL || process.env.AI_MODEL || "gpt-4o";
 
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    const messages: OpenAiChatMessage[] = [
       { role: "system", content: `${system}\n\n${ROUTE_PLANNER_JSON_HINT}` },
       { role: "user", content: userHint },
     ];
@@ -242,16 +262,14 @@ export async function planSalesRoute(
     for (let round = 0; round < MAX_ITERATIONS; round++) {
       if (shouldStopForToolBudget(reactTrace)) break;
       try {
-        const res = await withRateLimitRetry(() =>
-          client.chat.completions.create({
-            model,
-            temperature: 0.25,
-            tools,
-            tool_choice: "auto",
-            messages,
-          })
-        );
-        const msg = res.choices[0]?.message;
+        const roundResult = await invokeOpenAiChatRound({
+          model,
+          temperature: 0.25,
+          tools,
+          tool_choice: "auto",
+          messages,
+        });
+        const msg = roundResult.message;
         if (!msg) break;
 
         if (msg.tool_calls?.length) {
@@ -310,6 +328,13 @@ export async function planSalesRoute(
           }
         }
       } catch (e) {
+        if (isLlmBudgetExceededError(e)) {
+          return await buildBudgetExceededRoutePlan(
+            filename,
+            reactTrace,
+            e instanceof Error ? e.message : String(e)
+          );
+        }
         log.error("Route planner OpenAI error", e);
         break;
       }

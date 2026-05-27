@@ -175,12 +175,19 @@ export async function runComprehensiveExpertAi(
   }
 
   const provider = chooseProvider();
+  const expertTimeoutMs = parseInt(
+    process.env.AI_EXPERT_TIMEOUT_MS ||
+      process.env.AI_REQUEST_TIMEOUT_MS ||
+      "180000",
+    10
+  );
 
   try {
     const result = await invokeLlmJsonObject({
       system: SYSTEM,
       user: `Dane analizy (JSON):\n${payload}`,
       temperature: 0.2,
+      timeoutMs: expertTimeoutMs,
     });
     const parsed = parseExpertJson(result.raw, result.provider, result.model);
     if (parsed) {
@@ -193,31 +200,28 @@ export async function runComprehensiveExpertAi(
       };
     }
     log.warn("Expert AI: empty or invalid JSON from model");
+    const parseHint =
+      "Model zwrócił niepoprawny JSON — wyświetlono analizę z reguł. Spróbuj ponownie lub zmień model w .env.";
     return {
-      ...fallbackExpert(
-        analysisData,
-        "Model zwrócił niepoprawny JSON — wyświetlono analizę z reguł. Spróbuj ponownie lub zmień model w .env."
-      ),
+      ...fallbackExpert(analysisData, parseHint),
       meta: {
         provider: `${provider}-parse-fallback`,
         model: result.model,
         llmAvailable: false,
-        setupHint: llmStatus.hint,
+        setupHint: parseHint,
       },
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     log.error("LLM error", e);
+    const errorHint = `Błąd wywołania modelu (${provider}): ${msg.slice(0, 300)}`;
     return {
-      ...fallbackExpert(
-        analysisData,
-        `Błąd wywołania modelu (${provider}): ${msg.slice(0, 200)}. Sprawdź klucz API, limit lub model w .env.`
-      ),
+      ...fallbackExpert(analysisData, errorHint),
       meta: {
         provider: `${provider}-error-fallback`,
         model: "fallback",
         llmAvailable: false,
-        setupHint: llmStatus.hint,
+        setupHint: errorHint,
       },
     };
   }

@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import type {
   AISuggestion,
   AnalyticsAgentInsightsResponse,
@@ -32,18 +31,25 @@ import {
   shouldStopForToolBudget,
   type GuardrailStopReason,
 } from "./agentGuardrails";
-import { withRateLimitRetry } from "./llmRetry";
 import {
   createSessionId,
   emptyUsage,
   estimateCostUsd,
   mergeUsage,
   type TokenUsage,
-  usageFromAnthropic,
-  usageFromOpenAI,
 } from "./aiLogger";
 import { buildStrategistKnowledgeContext } from "./knowledgeService";
-import { chooseProvider, invokeLlmJsonObject } from "./llmInvoke";
+import {
+  chooseProvider,
+  invokeAnthropicChatRound,
+  invokeLlmJsonObject,
+  invokeOpenAiChatRound,
+  isLlmBudgetExceededError,
+  type AnthropicChatMessage,
+  type AnthropicContentBlock,
+  type AnthropicToolDefinition,
+  type OpenAiChatMessage,
+} from "./llmInvoke";
 
 const log = createLogger("agentOrchestrator");
 
@@ -103,11 +109,12 @@ async function strategistSystemPrompt(
   else if (persona === "financial_controller") personaBlock = STRATEGIST_PERSONA_FINANCIAL;
   else if (persona === "regional_logistics_manager") personaBlock = STRATEGIST_PERSONA_LOGISTICS;
 
-  return (
-    STRATEGIST_SYSTEM_PROMPT +
-    personaBlock +
-    buildStrategistKnowledgeContext(ctx.filename, productNames)
+  const knowledgeContext = await buildStrategistKnowledgeContext(
+    ctx.filename,
+    productNames
   );
+
+  return STRATEGIST_SYSTEM_PROMPT + personaBlock + knowledgeContext;
 }
 
 function buildStrategistUserContent(
@@ -346,10 +353,6 @@ export async function runAnalystPass(
   };
 }
 
-type OpenAIMessage =
-  | OpenAI.Chat.ChatCompletionMessageParam
-  | OpenAI.Chat.ChatCompletionToolMessageParam;
-
 /**
  * Pętla ReAct + function calling (OpenAI).
  */
@@ -363,9 +366,6 @@ async function runStrategistReActOpenAI(
   strategistCtx: StrategistRunContext,
   hooks?: WorkflowHooks
 ): Promise<AgenticInsightsResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("MISSING_OPENAI");
-  const client = new OpenAI({ apiKey });
   const model = getStrategistModel("openai");
   const tools = toolsToOpenAIFormat();
   const reactTrace: ReActStep[] = [];
@@ -373,7 +373,7 @@ async function runStrategistReActOpenAI(
   let usage = { ...usageAcc };
   emitStep(hooks, "Strateg wybiera narzędzia…");
   const systemPrompt = await strategistSystemPrompt(ctx, strategistCtx.persona);
-  const messages: OpenAIMessage[] = [
+  const messages: OpenAiChatMessage[] = [
     { role: "system", content: systemPrompt },
     {
       role: "user",
@@ -419,18 +419,33 @@ async function runStrategistReActOpenAI(
       });
     }
 
-    let res: OpenAI.Chat.ChatCompletion;
+    let msg;
     try {
-      res = await withRateLimitRetry(() =>
-        client.chat.completions.create({
-          model,
-          temperature: 0.3,
-          tools,
-          tool_choice: "auto",
-          messages,
-        })
-      );
+      const round = await invokeOpenAiChatRound({
+        model,
+        temperature: 0.3,
+        tools,
+        tool_choice: "auto",
+        messages,
+      });
+      usage = mergeUsage(usage, round.usage);
+      msg = round.message;
     } catch (e) {
+      if (isLlmBudgetExceededError(e)) {
+        return buildPartialAgenticResult({
+          reactTrace,
+          analystFacts,
+          provider: "openai",
+          productCount,
+          analystModel: getAnalystModel("openai"),
+          strategistModel: model,
+          sessionId,
+          workflowStart,
+          analystUsage: usageAcc,
+          usage,
+          reason: "budget_exceeded",
+        });
+      }
       log.error("Strateg OpenAI LLM error", e);
       return buildPartialAgenticResult({
         reactTrace,
@@ -446,9 +461,6 @@ async function runStrategistReActOpenAI(
         reason: "max_iterations",
       });
     }
-    usage = mergeUsage(usage, usageFromOpenAI(res.usage));
-
-    const msg = res.choices[0]?.message;
     if (!msg) break;
 
     if (msg.tool_calls?.length) {
@@ -648,30 +660,18 @@ async function runStrategistReActAnthropic(
   strategistCtx: StrategistRunContext,
   hooks?: WorkflowHooks
 ): Promise<AgenticInsightsResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
   const model = getStrategistModel("anthropic");
   const reactTrace: ReActStep[] = [];
 
-  const toolDefs = toolsToOpenAIFormat().map((t) => ({
+  const toolDefs: AnthropicToolDefinition[] = toolsToOpenAIFormat().map((t) => ({
     name: t.function.name,
     description: t.function.description,
-    input_schema: t.function.parameters,
+    input_schema: t.function.parameters as Record<string, unknown>,
   }));
-
-  type AnthropicMessage = {
-    role: "user" | "assistant";
-    content: string | AnthropicContentBlock[];
-  };
-
-  type AnthropicContentBlock =
-    | { type: "text"; text: string }
-    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-    | { type: "tool_result"; tool_use_id: string; content: string };
 
   let usage = { ...usageAcc };
   emitStep(hooks, "Strateg wybiera narzędzia…");
-  const messages: AnthropicMessage[] = [
+  const messages: AnthropicChatMessage[] = [
     {
       role: "user",
       content: buildStrategistUserContent(
@@ -716,27 +716,34 @@ async function runStrategistReActAnthropic(
       });
     }
 
-    let res: Response;
     const systemPrompt = await strategistSystemPrompt(ctx, strategistCtx.persona);
+    let blocks: AnthropicContentBlock[];
     try {
-      res = await withRateLimitRetry(() =>
-      fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 4096,
-          system: systemPrompt,
-          tools: toolDefs,
-          messages,
-        }),
-      })
-    );
+      const round = await invokeAnthropicChatRound({
+        model,
+        system: systemPrompt,
+        tools: toolDefs,
+        messages,
+        max_tokens: 4096,
+      });
+      usage = mergeUsage(usage, round.usage);
+      blocks = round.content;
     } catch (e) {
+      if (isLlmBudgetExceededError(e)) {
+        return buildPartialAgenticResult({
+          reactTrace,
+          analystFacts,
+          provider: "anthropic",
+          productCount,
+          analystModel: getAnalystModel("anthropic"),
+          strategistModel: model,
+          sessionId,
+          workflowStart,
+          analystUsage: usageAcc,
+          usage,
+          reason: "budget_exceeded",
+        });
+      }
       log.error("Strateg Anthropic LLM error", e);
       return buildPartialAgenticResult({
         reactTrace,
@@ -752,32 +759,6 @@ async function runStrategistReActAnthropic(
         reason: "max_iterations",
       });
     }
-
-    if (!res.ok) {
-      log.error(`Anthropic HTTP ${res.status}`, (await res.text()).slice(0, 400));
-      return buildPartialAgenticResult({
-        reactTrace,
-        analystFacts,
-        provider: "anthropic",
-        productCount,
-        analystModel: getAnalystModel("anthropic"),
-        strategistModel: model,
-        sessionId,
-        workflowStart,
-        analystUsage: usageAcc,
-        usage,
-        reason: "max_iterations",
-      });
-    }
-
-    const body = (await res.json()) as {
-      content?: AnthropicContentBlock[];
-      stop_reason?: string;
-      usage?: { input_tokens?: number; output_tokens?: number };
-    };
-    usage = mergeUsage(usage, usageFromAnthropic(body.usage));
-
-    const blocks = body.content || [];
     const toolUses = blocks.filter(
       (b): b is Extract<AnthropicContentBlock, { type: "tool_use" }> =>
         b.type === "tool_use"
@@ -897,6 +878,40 @@ export async function runAgenticInsightsWorkflow(
     analystModel = analyst.model;
     analystUsage = analyst.usage;
   } catch (e) {
+    if (isLlmBudgetExceededError(e)) {
+      const analystModelOnBudget =
+        provider === "openai"
+          ? getAnalystModel("openai")
+          : getAnalystModel("anthropic");
+      const emptyFacts = await buildAnalystUnavailableFacts(
+        ctx,
+        productCount,
+        e
+      );
+      const strategistModel =
+        provider === "openai"
+          ? getStrategistModel("openai")
+          : getStrategistModel("anthropic");
+      const partial = buildPartialAgenticResult({
+        reactTrace: [],
+        analystFacts: emptyFacts,
+        provider,
+        productCount,
+        analystModel: analystModelOnBudget,
+        strategistModel,
+        sessionId,
+        workflowStart,
+        analystUsage,
+        usage: analystUsage,
+        reason: "budget_exceeded",
+      });
+      partial.meta.strategistPersona = resolveExpertPersona(emptyFacts);
+      partial.meta.userInstructionsApplied = Boolean(
+        options.userInstructions?.trim()
+      );
+      partial.sessionId = sessionId;
+      return partial;
+    }
     log.warn("Analyst pass failed — strategist continues on raw data", e);
     facts = await buildAnalystUnavailableFacts(ctx, productCount, e);
     analystModel =
@@ -979,12 +994,9 @@ export async function runAgentToolInsightLoop(
     'Gdy masz dane, zwróć JSON: {"insights": string} — 6–18 zdań po polsku.';
 
   if (provider === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("MISSING_OPENAI");
-    const client = new OpenAI({ apiKey });
     const model = getStrategistModel("openai");
     const tools = toolsToOpenAIFormat();
-    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    const messages: OpenAiChatMessage[] = [
       { role: "system", content: `${system}\n\n${finalJsonHint}` },
       { role: "user", content: userHint },
     ];
@@ -1002,18 +1014,31 @@ export async function runAgentToolInsightLoop(
         };
       }
 
-      let res: OpenAI.Chat.ChatCompletion;
+      let msg;
       try {
-        res = await withRateLimitRetry(() =>
-          client.chat.completions.create({
-            model,
-            temperature: 0.35,
-            tools,
-            tool_choice: "auto",
-            messages,
-          })
-        );
+        const roundResult = await invokeOpenAiChatRound({
+          model,
+          temperature: 0.35,
+          tools,
+          tool_choice: "auto",
+          messages,
+        });
+        msg = roundResult.message;
       } catch (e) {
+        if (isLlmBudgetExceededError(e)) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          return {
+            insights: fallbackInsightsFromTrace(reactTrace),
+            meta: {
+              provider: "openai",
+              model,
+              orchestration: "react-tools-agent-insight-budget",
+              toolsUsed: collectToolsUsed(reactTrace),
+              budgetExceeded: true,
+              llmError: errMsg,
+            },
+          };
+        }
         log.error("Agent insight OpenAI error", e);
         return {
           insights: fallbackInsightsFromTrace(reactTrace),
@@ -1022,11 +1047,11 @@ export async function runAgentToolInsightLoop(
             model,
             orchestration: "react-tools-agent-insight-error",
             toolsUsed: collectToolsUsed(reactTrace),
+            llmError: e instanceof Error ? e.message : String(e),
           },
         };
       }
 
-      const msg = res.choices[0]?.message;
       if (!msg) break;
 
       if (msg.tool_calls?.length) {
@@ -1102,25 +1127,14 @@ export async function runAgentToolInsightLoop(
     };
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
   const model = getStrategistModel("anthropic");
-  const toolDefs = toolsToOpenAIFormat().map((t) => ({
+  const toolDefs: AnthropicToolDefinition[] = toolsToOpenAIFormat().map((t) => ({
     name: t.function.name,
     description: t.function.description,
-    input_schema: t.function.parameters,
+    input_schema: t.function.parameters as Record<string, unknown>,
   }));
 
-  type AnthropicMessage = {
-    role: "user" | "assistant";
-    content: string | AnthropicContentBlock[];
-  };
-  type AnthropicContentBlock =
-    | { type: "text"; text: string }
-    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-    | { type: "tool_result"; tool_use_id: string; content: string };
-
-  const messages: AnthropicMessage[] = [
+  const messages: AnthropicChatMessage[] = [
     {
       role: "user",
       content: `${userHint}\n\nPlik Excel: ${ctx.filename}`,
@@ -1140,26 +1154,31 @@ export async function runAgentToolInsightLoop(
       };
     }
 
-    let res: Response;
+    let blocks: AnthropicContentBlock[];
     try {
-      res = await withRateLimitRetry(() =>
-        fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 4096,
-            system: `${system}\n\n${finalJsonHint}`,
-            tools: toolDefs,
-            messages,
-          }),
-        })
-      );
+      const round = await invokeAnthropicChatRound({
+        model,
+        system: `${system}\n\n${finalJsonHint}`,
+        tools: toolDefs,
+        messages,
+        max_tokens: 4096,
+      });
+      blocks = round.content;
     } catch (e) {
+      if (isLlmBudgetExceededError(e)) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        return {
+          insights: fallbackInsightsFromTrace(reactTrace),
+          meta: {
+            provider: "anthropic",
+            model,
+            orchestration: "react-tools-agent-insight-budget",
+            toolsUsed: collectToolsUsed(reactTrace),
+            budgetExceeded: true,
+            llmError: errMsg,
+          },
+        };
+      }
       log.error("Agent insight Anthropic error", e);
       return {
         insights: fallbackInsightsFromTrace(reactTrace),
@@ -1168,25 +1187,10 @@ export async function runAgentToolInsightLoop(
           model,
           orchestration: "react-tools-agent-insight-error",
           toolsUsed: collectToolsUsed(reactTrace),
+          llmError: e instanceof Error ? e.message : String(e),
         },
       };
     }
-
-    if (!res.ok) {
-      log.error(`Agent insight Anthropic HTTP ${res.status}`);
-      return {
-        insights: fallbackInsightsFromTrace(reactTrace),
-        meta: {
-          provider: "anthropic",
-          model,
-          orchestration: "react-tools-agent-insight-error",
-          toolsUsed: collectToolsUsed(reactTrace),
-        },
-      };
-    }
-
-    const body = (await res.json()) as { content?: AnthropicContentBlock[] };
-    const blocks = body.content || [];
     const toolUses = blocks.filter(
       (b): b is Extract<AnthropicContentBlock, { type: "tool_use" }> =>
         b.type === "tool_use"

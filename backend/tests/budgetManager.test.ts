@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isLlmBudgetExceededError, LlmBudgetExceededError } from "../services/llmInvoke";
 import {
   __resetForTests,
   canSpend,
@@ -51,5 +52,12 @@ describe("budgetManager", () => {
     const status = getBudgetStatus();
     expect(status.remainingUsd).toBe(0);
     expect(status.currentSpendUsd).toBe(15);
+  });
+
+  it("isLlmBudgetExceededError detects LlmBudgetExceededError", () => {
+    const err = new LlmBudgetExceededError(0.01);
+    expect(isLlmBudgetExceededError(err)).toBe(true);
+    expect(isLlmBudgetExceededError(new Error(err.message))).toBe(true);
+    expect(isLlmBudgetExceededError(new Error("other"))).toBe(false);
   });
 });

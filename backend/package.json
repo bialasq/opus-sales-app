@@ -4,7 +4,7 @@
   "description": "Backend dla aplikacji analizy biznesowej",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon --exec tsx server.ts",
+    "dev": "nodemon --watch .env --ext ts,json,env --exec tsx server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "start": "node dist/server.js",

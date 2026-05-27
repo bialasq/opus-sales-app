@@ -94,7 +94,32 @@ export type InvokeLlmJsonOptions = {
   maxTokensAnthropic?: number;
   /** Nadpisanie modelu (np. gpt-4o-mini / Haiku dla kroku Analityk) */
   modelOverride?: string;
+  /** Nadpisanie timeoutu HTTP (ms); domyślnie AI_REQUEST_TIMEOUT_MS */
+  timeoutMs?: number;
 };
+
+function resolveTimeoutMs(timeoutMs?: number): number {
+  const ms = timeoutMs ?? AI_REQUEST_TIMEOUT_MS;
+  return Number.isFinite(ms) && ms > 0 ? ms : AI_REQUEST_TIMEOUT_MS;
+}
+
+export class LlmBudgetExceededError extends Error {
+  readonly remaining: number;
+
+  constructor(remaining: number) {
+    super(`Daily AI budget exceeded. Remaining: $${remaining.toFixed(4)}`);
+    this.name = "LlmBudgetExceededError";
+    this.remaining = remaining;
+  }
+}
+
+export function isLlmBudgetExceededError(err: unknown): err is LlmBudgetExceededError {
+  if (err instanceof LlmBudgetExceededError) return true;
+  return (
+    err instanceof Error &&
+    err.message.includes("Daily AI budget exceeded")
+  );
+}
 
 /**
  * Wywołanie modelu z oczekiwanym JSON-em w odpowiedzi (OpenAI: response_format json_object).
@@ -110,16 +135,35 @@ export type LlmInvokeResult = {
 function assertBudgetAllowsRequest(): void {
   const budget = canSpend(ESTIMATED_USD_PER_LLM_REQUEST);
   if (!budget.ok) {
-    throw new Error(
-      `Daily AI budget exceeded. Remaining: $${budget.remaining.toFixed(4)}`
-    );
+    throw new LlmBudgetExceededError(budget.remaining);
   }
 }
 
-function createOpenAiClient(apiKey: string): OpenAI {
+export type LlmTokenUsage = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+};
+
+function recordLlmUsageMetrics(
+  provider: LlmProviderActive,
+  model: string,
+  usage: LlmTokenUsage,
+  llmStartMs: number
+): void {
+  const cost = estimateCostUsd(model, usage);
+  recordSpend(cost, `${provider}:${model}`);
+  llmTokensTotal.inc({ provider, model, type: "input" }, usage.prompt_tokens);
+  llmTokensTotal.inc({ provider, model, type: "output" }, usage.completion_tokens);
+  llmCostUsdTotal.inc({ provider, model }, cost);
+  llmRequestDuration.observe({ provider, model }, (Date.now() - llmStartMs) / 1000);
+  refreshBudgetGauge();
+}
+
+function createOpenAiClient(apiKey: string, timeoutMs: number): OpenAI {
   return new OpenAI({
     apiKey,
-    timeout: AI_REQUEST_TIMEOUT_MS,
+    timeout: timeoutMs,
     maxRetries: 1,
   });
 }
@@ -132,7 +176,8 @@ async function invokeOpenAiJson(
 
   assertBudgetAllowsRequest();
 
-  const client = createOpenAiClient(apiKey);
+  const timeoutMs = resolveTimeoutMs(options.timeoutMs);
+  const client = createOpenAiClient(apiKey, timeoutMs);
   const model = options.modelOverride || process.env.AI_MODEL || "gpt-4o";
 
   const llmStart = Date.now();
@@ -153,19 +198,13 @@ async function invokeOpenAiJson(
   if (!text) throw new Error("Empty OpenAI response");
 
   const u = res.usage;
-  const usage = {
+  const usage: LlmTokenUsage = {
     prompt_tokens: u?.prompt_tokens ?? 0,
     completion_tokens: u?.completion_tokens ?? 0,
     total_tokens: u?.total_tokens ?? 0,
   };
 
-  const cost = estimateCostUsd(model, usage);
-  recordSpend(cost, `openai:${model}`);
-  llmTokensTotal.inc({ provider: "openai", model, type: "input" }, usage.prompt_tokens);
-  llmTokensTotal.inc({ provider: "openai", model, type: "output" }, usage.completion_tokens);
-  llmCostUsdTotal.inc({ provider: "openai", model }, cost);
-  llmRequestDuration.observe({ provider: "openai", model }, (Date.now() - llmStart) / 1000);
-  refreshBudgetGauge();
+  recordLlmUsageMetrics("openai", model, usage, llmStart);
 
   return {
     raw: text,
@@ -188,8 +227,9 @@ async function invokeAnthropicJson(
 
   assertBudgetAllowsRequest();
 
+  const timeoutMs = resolveTimeoutMs(options.timeoutMs);
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   const llmStart = Date.now();
   try {
@@ -225,22 +265,13 @@ async function invokeAnthropicJson(
 
     const inTok = body.usage?.input_tokens ?? 0;
     const outTok = body.usage?.output_tokens ?? 0;
-    const usage = {
+    const usage: LlmTokenUsage = {
       prompt_tokens: inTok,
       completion_tokens: outTok,
       total_tokens: inTok + outTok,
     };
 
-    const cost = estimateCostUsd(model, usage);
-    recordSpend(cost, `anthropic:${model}`);
-    llmTokensTotal.inc({ provider: "anthropic", model, type: "input" }, inTok);
-    llmTokensTotal.inc({ provider: "anthropic", model, type: "output" }, outTok);
-    llmCostUsdTotal.inc({ provider: "anthropic", model }, cost);
-    llmRequestDuration.observe(
-      { provider: "anthropic", model },
-      (Date.now() - llmStart) / 1000
-    );
-    refreshBudgetGauge();
+    recordLlmUsageMetrics("anthropic", model, usage, llmStart);
 
     return {
       raw: text,
@@ -250,9 +281,7 @@ async function invokeAnthropicJson(
     };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(
-        `Anthropic request timed out after ${AI_REQUEST_TIMEOUT_MS}ms`
-      );
+      throw new Error(`Anthropic request timed out after ${timeoutMs}ms`);
     }
     throw err;
   } finally {
@@ -272,4 +301,184 @@ export async function invokeLlmJsonObject(
     return invokeOpenAiJson(options);
   }
   return invokeAnthropicJson(options);
+}
+
+/** Bloki treści w API Anthropic (messages + tools). */
+export type AnthropicContentBlock =
+  | { type: "text"; text: string }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    }
+  | { type: "tool_result"; tool_use_id: string; content: string };
+
+export type AnthropicChatMessage = {
+  role: "user" | "assistant";
+  content: string | AnthropicContentBlock[];
+};
+
+export type AnthropicToolDefinition = {
+  name: string;
+  description?: string;
+  input_schema: Record<string, unknown>;
+};
+
+export type OpenAiChatMessage = OpenAI.Chat.ChatCompletionMessageParam;
+
+export type InvokeOpenAiChatOptions = {
+  messages: OpenAiChatMessage[];
+  tools?: OpenAI.Chat.ChatCompletionTool[];
+  tool_choice?: OpenAI.Chat.ChatCompletionToolChoiceOption;
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+  timeoutMs?: number;
+};
+
+export type OpenAiChatRoundResult = {
+  provider: "openai";
+  model: string;
+  usage: LlmTokenUsage;
+  message: OpenAI.Chat.ChatCompletionMessage;
+};
+
+export type InvokeAnthropicChatOptions = {
+  system: string;
+  messages: AnthropicChatMessage[];
+  tools?: AnthropicToolDefinition[];
+  model?: string;
+  max_tokens?: number;
+  temperature?: number;
+  timeoutMs?: number;
+};
+
+export type AnthropicChatRoundResult = {
+  provider: "anthropic";
+  model: string;
+  usage: LlmTokenUsage;
+  content: AnthropicContentBlock[];
+  stop_reason?: string;
+};
+
+/**
+ * Jedna runda OpenAI Chat Completions z opcjonalnym function calling (ReAct / route planner).
+ */
+export async function invokeOpenAiChatRound(
+  options: InvokeOpenAiChatOptions
+): Promise<OpenAiChatRoundResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("MISSING_OPENAI");
+
+  assertBudgetAllowsRequest();
+
+  const timeoutMs = resolveTimeoutMs(options.timeoutMs);
+  const client = createOpenAiClient(apiKey, timeoutMs);
+  const model = options.model ?? process.env.AI_MODEL ?? "gpt-4o";
+  const llmStart = Date.now();
+
+  const res = await withRateLimitRetry(() =>
+    client.chat.completions.create({
+      model,
+      temperature: options.temperature ?? 0.3,
+      messages: options.messages,
+      tools: options.tools,
+      tool_choice: options.tool_choice ?? (options.tools?.length ? "auto" : undefined),
+      max_tokens: options.max_tokens,
+    })
+  );
+
+  const message = res.choices[0]?.message;
+  if (!message) throw new Error("Empty OpenAI response");
+
+  const u = res.usage;
+  const usage: LlmTokenUsage = {
+    prompt_tokens: u?.prompt_tokens ?? 0,
+    completion_tokens: u?.completion_tokens ?? 0,
+    total_tokens: u?.total_tokens ?? 0,
+  };
+  recordLlmUsageMetrics("openai", model, usage, llmStart);
+
+  return { provider: "openai", model, usage, message };
+}
+
+/**
+ * Jedna runda Anthropic Messages API z opcjonalnym tool use (ReAct).
+ */
+export async function invokeAnthropicChatRound(
+  options: InvokeAnthropicChatOptions
+): Promise<AnthropicChatRoundResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
+
+  const model =
+    options.model ??
+    process.env.ANTHROPIC_MODEL ??
+    process.env.AI_STRATEGIST_MODEL ??
+    "claude-sonnet-4-6";
+
+  assertBudgetAllowsRequest();
+
+  const timeoutMs = resolveTimeoutMs(options.timeoutMs);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const llmStart = Date.now();
+
+  try {
+    const res = await withRateLimitRetry(() =>
+      fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: options.max_tokens ?? 4096,
+          temperature: options.temperature,
+          system: options.system,
+          tools: options.tools,
+          messages: options.messages,
+        }),
+        signal: controller.signal,
+      })
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Anthropic HTTP ${res.status}: ${errText.slice(0, 500)}`);
+    }
+
+    const body = (await res.json()) as {
+      content?: AnthropicContentBlock[];
+      stop_reason?: string;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
+
+    const inTok = body.usage?.input_tokens ?? 0;
+    const outTok = body.usage?.output_tokens ?? 0;
+    const usage: LlmTokenUsage = {
+      prompt_tokens: inTok,
+      completion_tokens: outTok,
+      total_tokens: inTok + outTok,
+    };
+    recordLlmUsageMetrics("anthropic", model, usage, llmStart);
+
+    return {
+      provider: "anthropic",
+      model,
+      usage,
+      content: body.content ?? [],
+      stop_reason: body.stop_reason,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Anthropic request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }

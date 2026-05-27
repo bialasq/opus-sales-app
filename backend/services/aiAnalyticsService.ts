@@ -1,9 +1,9 @@
-import fs from "fs";
-import path from "path";
 import { clearAllAgentCache, getCacheStats } from "./agentCache";
-import { loadAllFeedback, buildSessionFilenameIndex } from "./knowledgeService";
-
-const TRACES_DIR = path.join(__dirname, "..", "logs", "traces");
+import {
+  buildSessionFilenameIndex,
+  loadAllFeedback,
+} from "./knowledgeService";
+import { readTraceJsonSummaries } from "./traceLogReader";
 
 export type AiPerformanceStats = {
   totalRuns: number;
@@ -26,50 +26,8 @@ export type AiPerformanceStats = {
   }[];
 };
 
-function readTraceFiles(): Array<{
-  timestamp: string;
-  filename?: string;
-  cost_usd: number;
-  latency_ms: number;
-  total_tokens: number;
-  from_cache?: boolean;
-  eval_hallucinations?: number;
-}> {
-  if (!fs.existsSync(TRACES_DIR)) return [];
-  const out: ReturnType<typeof readTraceFiles> = [];
-
-  for (const file of fs.readdirSync(TRACES_DIR)) {
-    if (!file.endsWith(".json") || file.includes("feedback")) continue;
-    try {
-      const data = JSON.parse(
-        fs.readFileSync(path.join(TRACES_DIR, file), "utf8")
-      ) as {
-        timestamp?: string;
-        filename?: string;
-        cost_usd?: number;
-        latency_ms?: number;
-        total_tokens?: number;
-        meta?: { from_cache?: boolean; cache_hit?: boolean };
-        eval_summary?: { potential_hallucination?: number };
-      };
-      out.push({
-        timestamp: data.timestamp || file,
-        filename: data.filename,
-        cost_usd: data.cost_usd ?? 0,
-        latency_ms: data.latency_ms ?? 0,
-        total_tokens: data.total_tokens ?? 0,
-        from_cache: Boolean(data.meta?.from_cache || data.meta?.cache_hit),
-        eval_hallucinations: data.eval_summary?.potential_hallucination ?? 0,
-      });
-    } catch {
-      /* skip */
-    }
-  }
-  return out.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-}
-
 export async function getAiPerformanceStats(): Promise<AiPerformanceStats> {
-  const traces = readTraceFiles();
+  const traces = await readTraceJsonSummaries();
   const nonCacheRuns = traces.filter((t) => !t.from_cache);
   const runsForAvg = nonCacheRuns.length > 0 ? nonCacheRuns : traces;
 
@@ -88,7 +46,8 @@ export async function getAiPerformanceStats(): Promise<AiPerformanceStats> {
     0
   );
 
-  const feedback = loadAllFeedback(buildSessionFilenameIndex());
+  const sessionIndex = await buildSessionFilenameIndex();
+  const feedback = await loadAllFeedback(sessionIndex);
   const approvedCount = feedback.filter((f) => f.verdict === "approve").length;
   const rejectedCount = feedback.filter((f) => f.verdict === "reject").length;
   const totalFeedback = approvedCount + rejectedCount;

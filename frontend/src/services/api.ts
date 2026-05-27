@@ -201,6 +201,20 @@ export async function getTestDataInfo(): Promise<TestDataInfoResponse> {
   return data;
 }
 
+export type LlmStatusResponse = {
+  available: boolean;
+  provider: "openai" | "anthropic" | "none";
+  configuredProvider?: string;
+  hint?: string;
+  hasOpenAiKey?: boolean;
+  hasAnthropicKey?: boolean;
+};
+
+export async function getLlmStatus(): Promise<LlmStatusResponse> {
+  const { data } = await client.get<LlmStatusResponse>("/admin/llm-status");
+  return data;
+}
+
 export async function postDashboard(
   filename: string
 ): Promise<AnalyticsSummary> {

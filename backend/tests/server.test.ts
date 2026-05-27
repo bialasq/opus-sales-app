@@ -2,13 +2,14 @@ import type { Application } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const TEST_API_KEY = "test-api-key-32-chars-long-string-aaaaaa";
+function authHeaders(): { "x-api-key": string } {
+  return { "x-api-key": process.env.API_KEY! };
+}
 
 describe("HTTP integration (createApp)", () => {
   let app: Application;
 
   beforeAll(async () => {
-    process.env.API_KEY = TEST_API_KEY;
     const { createApp, setAppReadyForTests } = await import("../server");
     setAppReadyForTests(true);
     app = createApp();
@@ -52,7 +53,7 @@ describe("HTTP integration (createApp)", () => {
     it("accepts /api/products/analysis with correct x-api-key", async () => {
       const res = await request(app)
         .post("/api/products/analysis")
-        .set("x-api-key", TEST_API_KEY)
+        .set(authHeaders())
         .send({ filename: "sales-2025.xlsx" });
       expect([200, 400, 500]).toContain(res.status);
       expect(res.status).not.toBe(401);
@@ -76,7 +77,7 @@ describe("HTTP integration (createApp)", () => {
       const requests = Array.from({ length: 25 }, () =>
         request(app)
           .post("/api/ai/insights/run")
-          .set("x-api-key", TEST_API_KEY)
+          .set(authHeaders())
           .send({ filename: "sales-2025.xlsx" })
       );
       const responses = await Promise.all(requests);
@@ -89,7 +90,7 @@ describe("HTTP integration (createApp)", () => {
     it("rejects ../.env in filename", async () => {
       const res = await request(app)
         .post("/api/products/analysis")
-        .set("x-api-key", TEST_API_KEY)
+        .set(authHeaders())
         .send({ filename: "../.env" });
       expect(res.status).toBe(400);
     });
@@ -97,7 +98,7 @@ describe("HTTP integration (createApp)", () => {
     it("rejects ../../etc/passwd", async () => {
       const res = await request(app)
         .post("/api/products/analysis")
-        .set("x-api-key", TEST_API_KEY)
+        .set(authHeaders())
         .send({ filename: "../../etc/passwd" });
       expect(res.status).toBe(400);
     });
@@ -107,7 +108,7 @@ describe("HTTP integration (createApp)", () => {
     it("rejects .exe upload", async () => {
       const res = await request(app)
         .post("/api/upload")
-        .set("x-api-key", TEST_API_KEY)
+        .set(authHeaders())
         .attach("file", Buffer.from("malicious"), {
           filename: "evil.exe",
           contentType: "application/x-msdownload",
@@ -120,7 +121,7 @@ describe("HTTP integration (createApp)", () => {
     it("does not leak stack traces on 404", async () => {
       const res = await request(app)
         .get("/api/nonexistent-route")
-        .set("x-api-key", TEST_API_KEY);
+        .set(authHeaders());
       expect(res.status).toBe(404);
       const body = JSON.stringify(res.body);
       expect(body).not.toContain("at ");
