@@ -5,6 +5,7 @@ import type { ReActTraceStep } from "../shared/api-types";
 import { getActivePromptVersion } from "../prompts";
 import type { SuggestionFeedbackBody } from "../shared/api-types";
 import { createLogger } from "./appLogger";
+import { scrubObject } from "../utils/piiScrubber";
 
 const log = createLogger("aiLogger");
 
@@ -132,11 +133,11 @@ export async function logAgentTrace(
 ): Promise<string> {
   ensureTracesDir();
   const timestamp = new Date().toISOString();
-  const full: AgentTraceLogEntry = {
+  const full: AgentTraceLogEntry = scrubObject({
     ...entry,
     timestamp,
     prompt_version: getActivePromptVersion(),
-  };
+  });
   const safeSession = entry.sessionID.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 36);
   const fileTs = timestamp.replace(/[:.]/g, "-");
   const filePath = path.join(TRACES_DIR, `${fileTs}_${safeSession}.json`);
@@ -149,11 +150,13 @@ export async function logSuggestionFeedback(
   feedback: SuggestionFeedbackBody & { timestamp?: string; filename?: string }
 ): Promise<string> {
   ensureTracesDir();
-  const line = JSON.stringify({
-    ...feedback,
-    timestamp: feedback.timestamp ?? new Date().toISOString(),
-    prompt_version: getActivePromptVersion(),
-  });
+  const line = JSON.stringify(
+    scrubObject({
+      ...feedback,
+      timestamp: feedback.timestamp ?? new Date().toISOString(),
+      prompt_version: getActivePromptVersion(),
+    })
+  );
   const safeSession = feedback.sessionId.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 36);
   const filePath = path.join(TRACES_DIR, `${safeSession}-feedback.jsonl`);
   await fs.promises.appendFile(filePath, `${line}\n`, "utf8");
