@@ -25,6 +25,7 @@ const customersRoutes = require("./routes/customers") as Router;
 const productsRoutes = require("./routes/products") as Router;
 const paymentsRoutes = require("./routes/payments") as Router;
 const aiRoutes = require("./routes/ai") as Router;
+const adminRoutes = require("./routes/admin") as Router;
 
 const app: Application = express();
 const PORT: number = Number(process.env.PORT) || 3000;
@@ -171,6 +172,7 @@ app.use("/api/customers", customersRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/", (_req, res) => {
   res.type("html").send(`<!DOCTYPE html>

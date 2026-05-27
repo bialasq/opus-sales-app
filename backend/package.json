@@ -12,6 +12,7 @@
     "benchmark": "tsx scripts/benchmark.ts",
     "test": "vitest run",
     "test:filePath": "vitest run tests/filePathResolver.test.ts",
+    "test:budget": "vitest run tests/budgetManager.test.ts",
     "test:agent": "tsx scripts/agentUnitTests.ts"
   },
   "dependencies": {

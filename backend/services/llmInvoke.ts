@@ -1,7 +1,18 @@
 import OpenAI from "openai";
+import {
+  canSpend,
+  ESTIMATED_USD_PER_LLM_REQUEST,
+  recordSpend,
+} from "../utils/budgetManager";
+import { estimateCostUsd } from "./aiLogger";
 import { withRateLimitRetry } from "./llmRetry";
 
 export type LlmProviderActive = "openai" | "anthropic";
+
+const AI_REQUEST_TIMEOUT_MS = parseInt(
+  process.env.AI_REQUEST_TIMEOUT_MS || "60000",
+  10
+);
 
 export type LlmConfigStatus = {
   available: boolean;
@@ -90,6 +101,142 @@ export type LlmInvokeResult = {
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 };
 
+function assertBudgetAllowsRequest(): void {
+  const budget = canSpend(ESTIMATED_USD_PER_LLM_REQUEST);
+  if (!budget.ok) {
+    throw new Error(
+      `Daily AI budget exceeded. Remaining: $${budget.remaining.toFixed(4)}`
+    );
+  }
+}
+
+function createOpenAiClient(apiKey: string): OpenAI {
+  return new OpenAI({
+    apiKey,
+    timeout: AI_REQUEST_TIMEOUT_MS,
+    maxRetries: 1,
+  });
+}
+
+async function invokeOpenAiJson(
+  options: InvokeLlmJsonOptions
+): Promise<LlmInvokeResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("MISSING_OPENAI");
+
+  assertBudgetAllowsRequest();
+
+  const client = createOpenAiClient(apiKey);
+  const model = options.modelOverride || process.env.AI_MODEL || "gpt-4o";
+
+  const res = await withRateLimitRetry(() =>
+    client.chat.completions.create({
+      model,
+      temperature: options.temperature ?? 0.25,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: options.system },
+        { role: "user", content: options.user },
+      ],
+      max_tokens: options.maxTokensOpenAi ?? 4096,
+    })
+  );
+
+  const text = res.choices[0]?.message?.content;
+  if (!text) throw new Error("Empty OpenAI response");
+
+  const u = res.usage;
+  const usage = {
+    prompt_tokens: u?.prompt_tokens ?? 0,
+    completion_tokens: u?.completion_tokens ?? 0,
+    total_tokens: u?.total_tokens ?? 0,
+  };
+
+  recordSpend(estimateCostUsd(model, usage), `openai:${model}`);
+
+  return {
+    raw: text,
+    provider: "openai",
+    model,
+    usage,
+  };
+}
+
+async function invokeAnthropicJson(
+  options: InvokeLlmJsonOptions
+): Promise<LlmInvokeResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
+
+  const model =
+    options.modelOverride ||
+    process.env.ANTHROPIC_MODEL ||
+    "claude-sonnet-4-6";
+
+  assertBudgetAllowsRequest();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+
+  try {
+    const res = await withRateLimitRetry(() =>
+      fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: options.maxTokensAnthropic ?? 4096,
+          system: `${options.system}\n\nOdpowiedz WYŁĄCZNIE jednym obiektem JSON (bez markdown, bez komentarzy przed/po).`,
+          messages: [{ role: "user", content: options.user }],
+        }),
+        signal: controller.signal,
+      })
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Anthropic HTTP ${res.status}: ${errText.slice(0, 500)}`);
+    }
+
+    const body = (await res.json()) as {
+      content?: { type: string; text?: string }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
+    const text = body.content?.find((b) => b.type === "text")?.text;
+    if (!text) throw new Error("Empty Anthropic response");
+
+    const inTok = body.usage?.input_tokens ?? 0;
+    const outTok = body.usage?.output_tokens ?? 0;
+    const usage = {
+      prompt_tokens: inTok,
+      completion_tokens: outTok,
+      total_tokens: inTok + outTok,
+    };
+
+    recordSpend(estimateCostUsd(model, usage), `anthropic:${model}`);
+
+    return {
+      raw: text,
+      provider: "anthropic",
+      model,
+      usage,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `Anthropic request timed out after ${AI_REQUEST_TIMEOUT_MS}ms`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function invokeLlmJsonObject(
   options: InvokeLlmJsonOptions
 ): Promise<LlmInvokeResult> {
@@ -99,82 +246,7 @@ export async function invokeLlmJsonObject(
   }
 
   if (provider === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("MISSING_OPENAI");
-    const client = new OpenAI({ apiKey });
-    const model = options.modelOverride || process.env.AI_MODEL || "gpt-4o";
-    const res = await withRateLimitRetry(() =>
-      client.chat.completions.create({
-        model,
-        temperature: options.temperature ?? 0.25,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: options.system },
-          { role: "user", content: options.user },
-        ],
-        max_tokens: options.maxTokensOpenAi ?? 4096,
-      })
-    );
-    const text = res.choices[0]?.message?.content;
-    if (!text) throw new Error("Empty OpenAI response");
-    const u = res.usage;
-    return {
-      raw: text,
-      provider: "openai",
-      model,
-      usage: {
-        prompt_tokens: u?.prompt_tokens ?? 0,
-        completion_tokens: u?.completion_tokens ?? 0,
-        total_tokens: u?.total_tokens ?? 0,
-      },
-    };
+    return invokeOpenAiJson(options);
   }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("MISSING_ANTHROPIC");
-  const model =
-    options.modelOverride ||
-    process.env.ANTHROPIC_MODEL ||
-    "claude-sonnet-4-6";
-
-  const res = await withRateLimitRetry(() =>
-    fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: options.maxTokensAnthropic ?? 4096,
-        system: `${options.system}\n\nOdpowiedz WYŁĄCZNIE jednym obiektem JSON (bez markdown, bez komentarzy przed/po).`,
-        messages: [{ role: "user", content: options.user }],
-      }),
-    })
-  );
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Anthropic HTTP ${res.status}: ${errText.slice(0, 500)}`);
-  }
-
-  const body = (await res.json()) as {
-    content?: { type: string; text?: string }[];
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
-  const text = body.content?.find((b) => b.type === "text")?.text;
-  if (!text) throw new Error("Empty Anthropic response");
-  const inTok = body.usage?.input_tokens ?? 0;
-  const outTok = body.usage?.output_tokens ?? 0;
-  return {
-    raw: text,
-    provider: "anthropic",
-    model,
-    usage: {
-      prompt_tokens: inTok,
-      completion_tokens: outTok,
-      total_tokens: inTok + outTok,
-    },
-  };
+  return invokeAnthropicJson(options);
 }

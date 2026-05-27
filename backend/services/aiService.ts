@@ -55,6 +55,7 @@ import { createLogger } from "./appLogger";
 import { runJudgeReview } from "./judgeService";
 
 import { chooseProvider } from "./llmInvoke";
+import { isDailyBudgetExceededError } from "../utils/budgetManager";
 
 
 
@@ -520,7 +521,11 @@ export async function getAiInsightsForFile(
 
   } catch (e) {
 
-    log.error("Agentic workflow error", e);
+    if (isDailyBudgetExceededError(e)) {
+      log.warn("Daily AI budget exceeded", e);
+    } else {
+      log.error("Agentic workflow error", e);
+    }
 
     const catalogNames = products.map((p) => p.name);
 
@@ -540,15 +545,25 @@ export async function getAiInsightsForFile(
 
       meta: {
 
-        provider: `${provider}-error-fallback`,
+        provider: isDailyBudgetExceededError(e)
+          ? `${provider}-budget-exceeded`
+          : `${provider}-error-fallback`,
 
         productCount: products.length,
 
-        orchestration: "analyst-react-tools-strategist-failed",
+        orchestration: isDailyBudgetExceededError(e)
+          ? "daily-budget-exceeded"
+          : "analyst-react-tools-strategist-failed",
 
         sessionId,
 
         evalSummary: summary,
+
+        guardrailMessage: isDailyBudgetExceededError(e)
+          ? e instanceof Error
+            ? e.message
+            : "Daily AI budget exceeded"
+          : undefined,
 
       },
 
