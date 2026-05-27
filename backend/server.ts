@@ -1,12 +1,16 @@
 import path from "path";
 import fs from "fs";
+import { randomUUID } from "crypto";
 import dotenv from "dotenv";
 import express, {
   type Application,
+  type ErrorRequestHandler,
   type RequestHandler,
   type Router,
 } from "express";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import multer from "multer";
 import { rootLogger } from "./services/appLogger";
 
@@ -30,20 +34,102 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-app.use(cors());
+/** UI origin (Vue dev server) — CORS whitelist + link na GET / */
+const FRONTEND_ORIGIN =
+  process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
+
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "x-api-key"],
+  })
+);
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
 app.use(express.json({ limit: "12mb" }));
+
+const generalApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "AI rate limit exceeded, please wait" },
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many uploads, please try again later" },
+});
+
+app.use("/api/", generalApiLimiter);
+app.use("/api/ai/", aiLimiter);
+app.use("/api/upload", uploadLimiter);
+
+const ALLOWED_MIME_TYPES = [
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+];
+
+const ALLOWED_EXTENSIONS = [".xlsx", ".xls"];
+const MAX_UPLOAD_SIZE = 25 * 1024 * 1024;
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     cb(null, uploadsDir);
   },
   filename: (_req, file, cb) => {
-    const safeName = file.originalname.replace(/\s+/g, "_");
-    cb(null, `${Date.now()}-${safeName}`);
+    const ext = path.extname(file.originalname).toLowerCase();
+    const baseName = path
+      .basename(file.originalname, ext)
+      .replace(/[^A-Za-z0-9._-]/g, "_")
+      .slice(0, 100);
+    cb(null, `${randomUUID()}-${baseName}${ext}`);
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: MAX_UPLOAD_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(
+        new Error(
+          `Invalid file type: ${file.mimetype}. Only Excel files allowed.`
+        )
+      );
+      return;
+    }
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      cb(
+        new Error(
+          `Invalid file extension: ${ext}. Only .xlsx and .xls allowed.`
+        )
+      );
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 const handleUpload: RequestHandler = (req, res, _next) => {
   const file = req.file;
@@ -63,7 +149,9 @@ app.post("/api/upload", upload.single("file"), handleUpload);
 const testDataDownload: RequestHandler = (_req, res, _next) => {
   const testFilePath = path.join(__dirname, "dane_testowe.xlsx");
   if (!fs.existsSync(testFilePath)) {
-    res.status(404).json({ error: "Plik testowy nie istnieje. Uruchom: npm run generate-test-data" });
+    res.status(404).json({
+      error: "Plik testowy nie istnieje. Uruchom: npm run generate-test-data",
+    });
     return;
   }
   res.download(testFilePath, "dane_testowe.xlsx", (err: Error | null) => {
@@ -83,10 +171,6 @@ app.use("/api/customers", customersRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/ai", aiRoutes);
-
-/** Przeglądarka na :3000 — backend to API; UI uruchamia się osobno (Vue dev server, zwykle :8080). */
-const FRONTEND_ORIGIN =
-  process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
 
 app.get("/", (_req, res) => {
   res.type("html").send(`<!DOCTYPE html>
@@ -109,6 +193,24 @@ app.get("/", (_req, res) => {
 </body>
 </html>`);
 });
+
+const multerErrorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      res.status(413).json({ error: "File exceeds 25 MB limit" });
+      return;
+    }
+    res.status(400).json({ error: `Upload error: ${err.message}` });
+    return;
+  }
+  if (err instanceof Error && err.message.includes("Invalid file")) {
+    res.status(400).json({ error: err.message });
+    return;
+  }
+  next(err);
+};
+
+app.use(multerErrorHandler);
 
 const server = app.listen(PORT, () => {
   rootLogger.info(`Serwer działa na porcie ${PORT}`);
