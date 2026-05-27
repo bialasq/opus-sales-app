@@ -115,10 +115,8 @@ export function estimateWorkflowCostUsd(models: string[], usage: TokenUsage): nu
   return estimateCostUsd(model, usage);
 }
 
-function ensureTracesDir(): void {
-  if (!fs.existsSync(TRACES_DIR)) {
-    fs.mkdirSync(TRACES_DIR, { recursive: true });
-  }
+async function ensureTracesDir(): Promise<void> {
+  await fs.promises.mkdir(TRACES_DIR, { recursive: true });
 }
 
 function logWriteError(label: string, err: unknown): void {
@@ -131,7 +129,7 @@ function logWriteError(label: string, err: unknown): void {
 export async function logAgentTrace(
   entry: Omit<AgentTraceLogEntry, "timestamp" | "prompt_version">
 ): Promise<string> {
-  ensureTracesDir();
+  await ensureTracesDir();
   const timestamp = new Date().toISOString();
   const full: AgentTraceLogEntry = scrubObject({
     ...entry,
@@ -149,7 +147,7 @@ export async function logAgentTrace(
 export async function logSuggestionFeedback(
   feedback: SuggestionFeedbackBody & { timestamp?: string; filename?: string }
 ): Promise<string> {
-  ensureTracesDir();
+  await ensureTracesDir();
   const line = JSON.stringify(
     scrubObject({
       ...feedback,

@@ -42,12 +42,15 @@ export function setAppReadyForTests(ready = true): void {
   isAppReady = ready;
 }
 
+export async function ensureRuntimeDirs(): Promise<void> {
+  await fs.promises.mkdir(path.join(appRoot, "uploads"), { recursive: true });
+  await fs.promises.mkdir(path.join(appRoot, "logs", "traces"), {
+    recursive: true,
+  });
+}
+
 export function createApp(): Application {
   const app: Application = express();
-  const uploadsDir = path.join(appRoot, "uploads");
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
 
   const FRONTEND_ORIGIN =
     process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
@@ -214,9 +217,11 @@ export function createApp(): Application {
 
   app.post("/api/upload", upload.single("file"), handleUpload);
 
-  const testDataDownload: RequestHandler = (_req, res, next) => {
+  const testDataDownload: RequestHandler = async (_req, res, next) => {
     const testFilePath = path.join(appRoot, "dane_testowe.xlsx");
-    if (!fs.existsSync(testFilePath)) {
+    try {
+      await fs.promises.access(testFilePath);
+    } catch {
       next(
         new ValidationError(
           "Plik testowy nie istnieje. Uruchom: npm run generate-test-data"
@@ -285,7 +290,8 @@ export function createApp(): Application {
 
 let inFlightRequests = 0;
 
-export function startServer(): ReturnType<Application["listen"]> {
+export async function startServer(): Promise<ReturnType<Application["listen"]>> {
+  await ensureRuntimeDirs();
   const app = createApp();
   const PORT: number = Number(process.env.PORT) || 3000;
 
@@ -347,5 +353,8 @@ export function startServer(): ReturnType<Application["listen"]> {
 }
 
 if (require.main === module) {
-  startServer();
+  void startServer().catch((err) => {
+    rootLogger.error("Server start failed", err);
+    process.exit(1);
+  });
 }

@@ -2,16 +2,8 @@
  * Zastępuje brakujące analyzeProductRotation w excelService:
  * agregacja z analyzeSales na arkuszu Sprzedaż/Sprzedaz.
  */
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const excelService = require("./excelService") as {
-  analyzeSales: (rows: Record<string, unknown>[]) => {
-    salesByProduct: Record<
-      string,
-      { revenue: number; quantity: number; category?: string }
-    >;
-  };
-};
+import { excelService } from "./excelService";
+import type { SalesRow, ValidatedExcelWorkbook } from "../types/excelTypes";
 
 export type ProductRotationEntry = {
   name: string;
@@ -21,18 +13,10 @@ export type ProductRotationEntry = {
   seasonalTrends?: Record<number, number>;
 };
 
-function salesRows(
-  excelData: Record<string, Record<string, unknown>[]>
-): Record<string, unknown>[] {
-  if (excelData["Sprzedaż"]?.length) return excelData["Sprzedaż"];
-  if (excelData["Sprzedaz"]?.length) return excelData["Sprzedaz"];
-  return [];
-}
-
 export function analyzeProductRotationFromWorkbook(
-  excelData: Record<string, Record<string, unknown>[]>
+  excelData: ValidatedExcelWorkbook
 ): Record<string, ProductRotationEntry> {
-  const rows = salesRows(excelData);
+  const rows: SalesRow[] = excelData.sales;
   if (!rows.length) return {};
 
   const sales = excelService.analyzeSales(rows);

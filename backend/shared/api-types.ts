@@ -90,7 +90,11 @@ export interface AiInsightsMeta {
   from_cache?: boolean;
   cacheAge_ms?: number;
   partial?: boolean;
-  partialReason?: "max_iterations" | "token_limit" | "budget_exceeded";
+  partialReason?:
+    | "max_iterations"
+    | "token_limit"
+    | "budget_exceeded"
+    | "validation_error";
   guardrailMessage?: string;
   current_step?: string;
 }
@@ -193,7 +197,7 @@ export interface AnalyticsSummary {
   topProducts: DashboardTopProduct[];
   customerRetention: number;
   uniqueCustomers: number;
-  rawDataSample: Record<string, unknown>[];
+  rawDataSample: import("../types/excelTypes").SalesRow[];
 }
 
 export interface TestDataInfoResponse {

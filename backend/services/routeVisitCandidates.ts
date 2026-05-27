@@ -24,12 +24,6 @@ export type RouteVisitCandidate = {
   driveTimeFromBaseHours?: number;
 };
 
-function getCityFromRow(row: Record<string, unknown>): string {
-  return String(
-    row["Miejscowość"] ?? row["Miasto"] ?? row["City"] ?? row["Lokalizacja"] ?? ""
-  ).trim();
-}
-
 function priorityFromOpis(opis: string): { score: number; label: "high" | "medium" | "low" } {
   const d = opis.toLowerCase();
   if (d.includes("niezainteresowany") || d.includes("rezygnacja")) {
@@ -60,15 +54,13 @@ export async function buildRouteVisitCandidates(filename: string): Promise<{
   const byKey = new Map<string, RouteVisitCandidate>();
 
   for (const row of rows) {
-    const nip = String(row["Klient_NIP"] ?? "").trim();
+    const nip = row.clientNip?.trim() ?? "";
     if (!nip) continue;
-    const city = getCityFromRow(row);
+    const city = row.city.trim();
     if (!city) continue;
 
-    const opis = String(row["Opis"] ?? "");
-    const fromOpis = priorityFromOpis(opis);
-    const priorities = visitAnalysis.customerPriorities as Record<string, string> | undefined;
-    const fromVisitPriority = priorities?.[nip];
+    const fromOpis = priorityFromOpis(row.description);
+    const fromVisitPriority = visitAnalysis.customerPriorities[nip];
     let score = fromOpis.score;
     if (fromVisitPriority === "wysoki") score = Math.max(score, 88);
     if (fromVisitPriority === "niski") score = Math.min(score, 30);
@@ -79,9 +71,8 @@ export async function buildRouteVisitCandidates(filename: string): Promise<{
       if (cust.orders <= 2) score += 15;
     }
 
-    const name =
-      String(row["Klient_Nazwa"] ?? cust?.name ?? `Klient ${nip}`).trim() || `Klient ${nip}`;
-    const region = String(row["Województwo"] ?? "").trim() || undefined;
+    const name = row.customerName.trim() || cust?.name || `Klient ${nip}`;
+    const region = row.region.trim() || undefined;
     const key = `${nip}|${city}`;
 
     const existing = byKey.get(key);

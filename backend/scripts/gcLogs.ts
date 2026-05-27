@@ -8,27 +8,36 @@ const log = createLogger("gcLogs");
 const RETENTION_DAYS = parseInt(process.env.LOG_RETENTION_DAYS || "30", 10);
 const TRACES_DIR = path.join(getAppRoot(), "logs", "traces");
 
-function runGC(): void {
-  if (!fs.existsSync(TRACES_DIR)) {
-    log.info("No traces directory");
-    return;
+async function runGC(): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(TRACES_DIR);
+  } catch (err: unknown) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code: string }).code)
+        : "";
+    if (code === "ENOENT") {
+      log.info("No traces directory");
+      return;
+    }
+    throw err;
   }
+
   const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
   let deleted = 0;
-  for (const file of fs.readdirSync(TRACES_DIR)) {
+  for (const file of entries) {
     const full = path.join(TRACES_DIR, file);
-    const stat = fs.statSync(full);
+    const stat = await fs.promises.stat(full);
     if (stat.mtimeMs < cutoff) {
-      fs.unlinkSync(full);
+      await fs.promises.unlink(full);
       deleted++;
     }
   }
   log.info(`Log GC: deleted ${deleted} files older than ${RETENTION_DAYS} days`);
 }
 
-try {
-  runGC();
-} catch (err) {
+void runGC().catch((err) => {
   log.error("Log GC failed", err);
   process.exit(1);
-}
+});

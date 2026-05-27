@@ -15,7 +15,8 @@ export const SESSION_TOKEN_LIMIT =
 export type GuardrailStopReason =
   | "max_iterations"
   | "token_limit"
-  | "budget_exceeded";
+  | "budget_exceeded"
+  | "validation_error";
 
 export function isTokenLimitExceeded(usage: TokenUsage): boolean {
   return usage.total_tokens >= SESSION_TOKEN_LIMIT;
@@ -40,6 +41,8 @@ export const GUARDRAIL_MESSAGES: Record<GuardrailStopReason, string> = {
   token_limit: `Osiągnięto limit ${SESSION_TOKEN_LIMIT} tokenów w sesji — zwrócono częściowe wyniki.`,
   budget_exceeded:
     "Dzienny budżet wywołań AI został wyczerpany — zwrócono częściowe wyniki. Spróbuj jutro lub zwiększ AI_BUDGET_USD_PER_DAY.",
+  validation_error:
+    "Plik Excel ma nieprawidłową strukturę — popraw kolumny w arkuszu i wgraj ponownie.",
 };
 
 export type PartialGuardrailMeta = {

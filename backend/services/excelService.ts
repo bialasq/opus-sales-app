@@ -1,54 +1,83 @@
-// backend/services/excelService.js
-const XLSX = require("xlsx");
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import * as XLSX from "xlsx";
+import { createLogger } from "./appLogger";
+import type {
+  CombinedMetrics,
+  CustomerProfilesMap,
+  DataStructureInfo,
+  PaymentAnalysis,
+  PaymentRow,
+  SalesAnalysis,
+  SalesRow,
+  ValidatedExcelWorkbook,
+  VisitAnalysis,
+  VisitRow,
+} from "./excelTypes";
+import {
+  type RawExcelWorkbook,
+  validateExcelWorkbook,
+} from "./excelRowValidation";
+const log = createLogger("excelService");
+
+function cellString(value: unknown): string {
+  if (value == null) return "";
+  return String(value);
+}
+
+function parseRawWorkbookBuffer(buffer: Buffer): RawExcelWorkbook {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const data: RawExcelWorkbook = {};
+
+  for (const sheetName of workbook.SheetNames) {
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) continue;
+    data[sheetName] = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+      worksheet,
+      {
+        raw: false,
+        dateNF: "dd.mm.yyyy",
+      }
+    );
+  }
+
+  return data;
+}
 
 class ExcelService {
-  readFile(filePath) {
+  readAndValidateBuffer(buffer: Buffer, filename: string): ValidatedExcelWorkbook {
+    const raw = parseRawWorkbookBuffer(buffer);
+    return validateExcelWorkbook(raw, filename);
+  }
+
+  async readFile(filePath: string): Promise<ValidatedExcelWorkbook> {
+    const filename = path.basename(filePath);
     try {
-      if (!fs.existsSync(filePath)) {
+      const buffer = await fs.promises.readFile(path.resolve(filePath));
+      return this.readAndValidateBuffer(buffer, filename);
+    } catch (error: unknown) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code: string }).code)
+          : "";
+      if (code === "ENOENT") {
         throw new Error(`Plik nie istnieje: ${filePath}`);
       }
-
-      const workbook = XLSX.readFile(filePath);
-      const data = {};
-
-      // Odczytaj wszystkie arkusze
-      workbook.SheetNames.forEach((sheetName) => {
-        const worksheet = workbook.Sheets[sheetName];
-        // Użyj raw: false aby daty były formatowane jako stringi
-        data[sheetName] = XLSX.utils.sheet_to_json(worksheet, {
-          raw: false,
-          dateNF: "dd.mm.yyyy",
-        });
-      });
-
-      return data;
-    } catch (error) {
-      console.error("Błąd odczytu pliku Excel:", error);
+      log.error("Błąd odczytu pliku Excel:", error);
       throw error;
     }
   }
 
-  readBuffer(buffer) {
+  readBuffer(buffer: Buffer, filename = "upload.xlsx"): ValidatedExcelWorkbook {
     try {
-      const workbook = XLSX.read(buffer, { type: "buffer" });
-      const data = {};
-      workbook.SheetNames.forEach((sheetName) => {
-        const worksheet = workbook.Sheets[sheetName];
-        data[sheetName] = XLSX.utils.sheet_to_json(worksheet, {
-          raw: false,
-          dateNF: "dd.mm.yyyy",
-        });
-      });
-      return data;
+      return this.readAndValidateBuffer(buffer, filename);
     } catch (error) {
-      console.error("Błąd odczytu bufora Excel:", error);
+      log.error("Błąd odczytu bufora Excel:", error);
       throw error;
     }
   }
 
-  parseDate(dateString) {
+  parseDate(dateString: unknown): Date {
     if (!dateString) return new Date();
 
     // Obsługa różnych formatów dat
@@ -69,20 +98,28 @@ class ExcelService {
       if (match) {
         if (format === formats[2]) {
           // yyyy-mm-dd
-          return new Date(match[1], match[2] - 1, match[3]);
+          return new Date(
+            Number(match[1]),
+            Number(match[2]) - 1,
+            Number(match[3])
+          );
         } else {
           // dd.mm.yyyy lub dd/mm/yyyy
-          return new Date(match[3], match[2] - 1, match[1]);
+          return new Date(
+            Number(match[3]),
+            Number(match[2]) - 1,
+            Number(match[1])
+          );
         }
       }
     }
 
     // Jeśli nic nie pasuje, spróbuj Date.parse
-    const parsed = Date.parse(dateString);
+    const parsed = Date.parse(cellString(dateString));
     return isNaN(parsed) ? new Date() : new Date(parsed);
   }
 
-  analyzeVisits(visitData) {
+  analyzeVisits(visitData: VisitRow[]): VisitAnalysis {
     if (!visitData || visitData.length === 0) {
       return {
         totalVisits: 0,
@@ -97,7 +134,7 @@ class ExcelService {
       };
     }
 
-    const analysis = {
+    const analysis: VisitAnalysis = {
       totalVisits: visitData.length,
       salesVisits: 0,
       nonSalesVisits: 0,
@@ -110,9 +147,8 @@ class ExcelService {
     };
 
     visitData.forEach((visit) => {
-      // Analiza typu wizyty
       const isSalesVisit = ["tak", "yes", "t", "1"].includes(
-        (visit["Sprzedażowa"] || "").toString().toLowerCase()
+        visit.isSalesVisit.toLowerCase()
       );
 
       if (isSalesVisit) {
@@ -121,8 +157,7 @@ class ExcelService {
         analysis.nonSalesVisits++;
       }
 
-      // Analiza regionalna
-      const region = visit["Województwo"] || "Nieznane";
+      const region = visit.region || "Nieznane";
       if (!analysis.visitsByRegion[region]) {
         analysis.visitsByRegion[region] = {
           total: 0,
@@ -137,8 +172,7 @@ class ExcelService {
         analysis.visitsByRegion[region].nonSales++;
       }
 
-      // Analiza handlowców
-      const salesperson = visit["Opiekun"] || "Nieznany";
+      const salesperson = visit.salesperson || "Nieznany";
       if (!analysis.visitsBySalesperson[salesperson]) {
         analysis.visitsBySalesperson[salesperson] = {
           visits: 0,
@@ -152,31 +186,30 @@ class ExcelService {
         analysis.visitsBySalesperson[salesperson].salesVisits++;
       }
 
-      // Dystans i czas
-      const distance = parseFloat(visit["Dystans_km"] || 0);
-      const duration = parseFloat(visit["Czas_Trwania"] || 0);
+      const distance = visit.distanceKm;
+      const duration = visit.durationMinutes;
       analysis.totalDistance += distance;
       analysis.totalTime += duration;
       analysis.visitsBySalesperson[salesperson].distance += distance;
       analysis.visitsBySalesperson[salesperson].time += duration;
 
-      // Analiza priorytetów na podstawie opisu
-      const description = (visit["Opis"] || "").toLowerCase();
-      const clientNIP = visit["Klient_NIP"];
+      const description = visit.description.toLowerCase();
+      const clientNIP = visit.clientNip;
 
       if (clientNIP) {
+        const nipKey = clientNIP;
         if (
           description.includes("zainteresowany") &&
           !description.includes("niezainteresowany")
         ) {
-          analysis.customerPriorities[clientNIP] = "wysoki";
+          analysis.customerPriorities[nipKey] = "wysoki";
         } else if (
           description.includes("niezainteresowany") ||
           description.includes("rezygnacja")
         ) {
-          analysis.customerPriorities[clientNIP] = "niski";
+          analysis.customerPriorities[nipKey] = "niski";
         } else {
-          analysis.customerPriorities[clientNIP] = "średni";
+          analysis.customerPriorities[nipKey] = "średni";
         }
       }
     });
@@ -190,7 +223,7 @@ class ExcelService {
     return analysis;
   }
 
-  analyzeSales(salesData) {
+  analyzeSales(salesData: SalesRow[]): SalesAnalysis {
     if (!salesData || salesData.length === 0) {
       return {
         totalRevenue: 0,
@@ -199,21 +232,21 @@ class ExcelService {
         salesByProduct: {},
         salesByCustomer: {},
         salesBySalesperson: {},
-        productRotation: {},
+        productRotation: {} as Record<string, unknown>,
         customerTiers: {},
         monthlyTrends: {},
         inactiveProducts: [],
       };
     }
 
-    const analysis = {
+    const analysis: SalesAnalysis = {
       totalRevenue: 0,
       totalMargin: 0,
       salesByCategory: {},
       salesByProduct: {},
       salesByCustomer: {},
       salesBySalesperson: {},
-      productRotation: {},
+      productRotation: {} as Record<string, unknown>,
       customerTiers: {},
       monthlyTrends: {},
       inactiveProducts: [],
@@ -224,17 +257,15 @@ class ExcelService {
     twoMonthsAgo.setMonth(currentDate.getMonth() - 2);
 
     salesData.forEach((sale) => {
-      const value = parseFloat(sale["Wartość"] || sale["Wartosc"] || 0);
-      const margin = parseFloat(sale["Marża"] || sale["Marza"] || 0);
-      const quantity = parseInt(sale["Ilość"] || sale["Ilosc"] || 0);
-      const category = sale["Kategoria"] || "Inne";
-      const product = sale["Nazwa_Produktu"] || "Nieznany";
-      const customerNIP = sale["Klient_NIP"];
-      const customerName = sale["Klient_Nazwa"] || "Nieznany";
-      const salesperson = sale["Opiekun"];
-      const saleDate = this.parseDate(
-        sale["Data_Sprzedaży"] || sale["Data_Sprzedazy"]
-      );
+      const value = sale.revenue;
+      const margin = sale.margin;
+      const quantity = Math.round(sale.quantity);
+      const category = sale.category;
+      const product = sale.productName;
+      const customerNIP = sale.customerNip;
+      const customerName = sale.customerName;
+      const salesperson = sale.salesperson;
+      const saleDate = this.parseDate(sale.saleDate);
 
       analysis.totalRevenue += value;
       analysis.totalMargin += margin;
@@ -268,36 +299,40 @@ class ExcelService {
 
       // Analiza klientów
       if (customerNIP) {
-        if (!analysis.salesByCustomer[customerNIP]) {
-          analysis.salesByCustomer[customerNIP] = {
-            name: customerName,
+        const nipKey = String(customerNIP);
+        if (!analysis.salesByCustomer[nipKey]) {
+          analysis.salesByCustomer[nipKey] = {
+            name: String(customerName),
             revenue: 0,
             orders: 0,
             lastOrderDate: saleDate,
-            products: new Set(),
+            products: new Set<string>(),
           };
         }
-        analysis.salesByCustomer[customerNIP].revenue += value;
-        analysis.salesByCustomer[customerNIP].orders++;
-        if (saleDate > analysis.salesByCustomer[customerNIP].lastOrderDate) {
-          analysis.salesByCustomer[customerNIP].lastOrderDate = saleDate;
+        analysis.salesByCustomer[nipKey].revenue += value;
+        analysis.salesByCustomer[nipKey].orders++;
+        if (saleDate > analysis.salesByCustomer[nipKey].lastOrderDate) {
+          analysis.salesByCustomer[nipKey].lastOrderDate = saleDate;
         }
-        analysis.salesByCustomer[customerNIP].products.add(product);
+        analysis.salesByCustomer[nipKey].products.add(String(product));
       }
 
       // Analiza handlowców
       if (salesperson) {
-        if (!analysis.salesBySalesperson[salesperson]) {
-          analysis.salesBySalesperson[salesperson] = {
+        const salespersonKey = String(salesperson);
+        if (!analysis.salesBySalesperson[salespersonKey]) {
+          analysis.salesBySalesperson[salespersonKey] = {
             revenue: 0,
             margin: 0,
-            customers: new Set(),
+            customers: new Set<string>(),
           };
         }
-        analysis.salesBySalesperson[salesperson].revenue += value;
-        analysis.salesBySalesperson[salesperson].margin += margin;
+        analysis.salesBySalesperson[salespersonKey].revenue += value;
+        analysis.salesBySalesperson[salespersonKey].margin += margin;
         if (customerNIP) {
-          analysis.salesBySalesperson[salesperson].customers.add(customerNIP);
+          analysis.salesBySalesperson[salespersonKey].customers.add(
+            String(customerNIP)
+          );
         }
       }
 
@@ -324,7 +359,7 @@ class ExcelService {
     return analysis;
   }
 
-  classifyCustomers(analysis) {
+  classifyCustomers(analysis: SalesAnalysis): void {
     const customers = Object.entries(analysis.salesByCustomer);
     if (customers.length === 0) return;
 
@@ -359,7 +394,10 @@ class ExcelService {
     });
   }
 
-  identifyInactiveProducts(analysis, thresholdDate) {
+  identifyInactiveProducts(
+    analysis: SalesAnalysis,
+    thresholdDate: Date
+  ): void {
     analysis.inactiveProducts = [];
 
     Object.entries(analysis.salesByProduct).forEach(([product, data]) => {
@@ -369,7 +407,7 @@ class ExcelService {
           category: data.category,
           lastSale: data.lastSaleDate,
           daysSinceLastSale: Math.floor(
-            (new Date() - data.lastSaleDate) / (1000 * 60 * 60 * 24)
+            (Date.now() - data.lastSaleDate.getTime()) / (1000 * 60 * 60 * 24)
           ),
         });
       }
@@ -381,7 +419,7 @@ class ExcelService {
     );
   }
 
-  analyzePayments(paymentData) {
+  analyzePayments(paymentData: PaymentRow[]): PaymentAnalysis {
     if (!paymentData || paymentData.length === 0) {
       return {
         totalOutstanding: 0,
@@ -391,7 +429,7 @@ class ExcelService {
       };
     }
 
-    const analysis = {
+    const analysis: PaymentAnalysis = {
       totalOutstanding: 0,
       overduePayments: [],
       paymentsByCustomer: {},
@@ -403,28 +441,25 @@ class ExcelService {
     let overdueCount = 0;
 
     paymentData.forEach((payment) => {
-      const dueDate = this.parseDate(
-        payment["Termin_Płatności"] || payment["Termin_Platnosci"]
-      );
-      const amount = parseFloat(payment["Kwota_Brutto"] || 0);
-      const status = payment["Status"] || "Oczekuje";
-      const customerNIP = payment["Klient_NIP"];
-      const customerName = payment["Klient_Nazwa"] || "Nieznany";
+      const dueDate = this.parseDate(payment.dueDate);
+      const amount = payment.amount;
+      const status = payment.status;
+      const customerNIP = payment.customerNip;
+      const customerName = payment.customerName;
 
-      // Sprawdź czy faktura jest przeterminowana
       if (status.toLowerCase() !== "zapłacona" && dueDate < today) {
         const daysOverdue = Math.floor(
-          (today - dueDate) / (1000 * 60 * 60 * 24)
+          (today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)
         );
 
         analysis.overduePayments.push({
-          invoiceNumber: payment["Nr_Faktury"],
+          invoiceNumber: payment.invoiceNumber,
           customerNIP: customerNIP,
           customerName: customerName,
           amount: amount,
           dueDate: dueDate,
           daysOverdue: daysOverdue,
-          email: payment["Email"],
+          email: payment.email,
         });
 
         analysis.totalOutstanding += amount;
@@ -434,18 +469,19 @@ class ExcelService {
 
       // Grupuj według klienta
       if (customerNIP) {
-        if (!analysis.paymentsByCustomer[customerNIP]) {
-          analysis.paymentsByCustomer[customerNIP] = {
+        const nipKey = customerNIP;
+        if (!analysis.paymentsByCustomer[nipKey]) {
+          analysis.paymentsByCustomer[nipKey] = {
             name: customerName,
             total: 0,
             overdue: 0,
             overdueCount: 0,
           };
         }
-        analysis.paymentsByCustomer[customerNIP].total += amount;
+        analysis.paymentsByCustomer[nipKey].total += amount;
         if (status.toLowerCase() !== "zapłacona" && dueDate < today) {
-          analysis.paymentsByCustomer[customerNIP].overdue += amount;
-          analysis.paymentsByCustomer[customerNIP].overdueCount++;
+          analysis.paymentsByCustomer[nipKey].overdue += amount;
+          analysis.paymentsByCustomer[nipKey].overdueCount++;
         }
       }
     });
@@ -459,8 +495,11 @@ class ExcelService {
     return analysis;
   }
 
-  calculateMetrics(visitAnalysis, salesAnalysis) {
-    const metrics = {
+  calculateMetrics(
+    visitAnalysis: VisitAnalysis,
+    salesAnalysis: SalesAnalysis
+  ): CombinedMetrics {
+    const metrics: CombinedMetrics = {
       revenuePerKilometer: 0,
       averageVisitDuration: 0,
       conversionMetrics: {},
@@ -516,36 +555,26 @@ class ExcelService {
    * Profile klientów dla widoku /customers/profile — obiekt { [nip]: { name, city, tier, totalOrders, totalValue, visitFrequency } }.
    * @param {Record<string, Record<string, unknown>[]>} workbook — wynik readFile (klucze = nazwy arkuszy)
    */
-  analyzeCustomerData(workbook) {
-    const profiles = {};
-    if (!workbook || typeof workbook !== "object") {
-      return profiles;
-    }
+  analyzeCustomerData(workbook: ValidatedExcelWorkbook): CustomerProfilesMap {
+    const profiles: CustomerProfilesMap = {};
 
-    const salesRows =
-      workbook["Sprzedaż"] || workbook["Sprzedaz"] || workbook["sprzedaż"] || [];
-    const visitRows = workbook["Wizyty"] || workbook["wizyty"] || [];
-    const invoiceRows = workbook["Faktury"] || workbook["faktury"] || [];
+    let salesData: SalesRow[] = [...workbook.sales];
+    const visitRows = workbook.visits;
 
-    let salesData = Array.isArray(salesRows) ? [...salesRows] : [];
-
-    if (salesData.length === 0 && invoiceRows.length > 0) {
-      salesData = invoiceRows.map((inv) => ({
-        Wartość: inv["Kwota_Brutto"] ?? inv["Kwota_Netto"] ?? 0,
-        Marża: 0,
-        Ilość: 1,
-        Kategoria: "Faktury",
-        Nazwa_Produktu: inv["Numer_Faktury"] || inv["Numer faktury"] || "Faktura",
-        Klient_NIP: inv["Klient_NIP"],
-        Klient_Nazwa: inv["Klient_Nazwa"] || "Nieznany",
-        Opiekun: inv["Opiekun"],
-        Data_Sprzedaży:
-          inv["Data_Sprzedaży"] ||
-          inv["Data_Sprzedazy"] ||
-          inv["Data_Wystawienia"] ||
-          inv["Data wystawienia"] ||
-          inv["Data"],
-      }));
+    if (salesData.length === 0 && workbook.payments.length > 0) {
+      salesData = workbook.payments.map(
+        (inv): SalesRow => ({
+          productName: inv.invoiceNumber,
+          category: "Faktury",
+          revenue: inv.amount,
+          margin: 0,
+          quantity: 1,
+          customerNip: inv.customerNip,
+          customerName: inv.customerName,
+          salesperson: null,
+          saleDate: inv.dueDate,
+        })
+      );
     }
 
     if (salesData.length === 0) {
@@ -555,23 +584,11 @@ class ExcelService {
     const salesAnalysis = this.analyzeSales(salesData);
     const { salesByCustomer, customerTiers } = salesAnalysis;
 
-    /** @type {Record<string, string>} */
-    const cityByNip = {};
-    (Array.isArray(visitRows) ? visitRows : []).forEach((v) => {
-      const nip = v["Klient_NIP"] ?? v["NIP"] ?? v["Klient_Nip"];
-      if (nip == null || nip === "") return;
-      const key = String(nip);
-      const city =
-        v["Miasto"] ||
-        v["Miejscowość"] ||
-        v["Miejscowosc"] ||
-        v["Region"] ||
-        "Nieznane";
-      cityByNip[key] = String(city);
+    const cityByNip: Record<string, string> = {};
+    visitRows.forEach((v) => {
+      if (!v.clientNip) return;
+      cityByNip[v.clientNip] = v.city || "Nieznane";
     });
-
-    const visitNipKey = (v) =>
-      String(v["Klient_NIP"] ?? v["NIP"] ?? v["Klient_Nip"] ?? "");
 
     Object.keys(salesByCustomer).forEach((nip) => {
       const key = String(nip);
@@ -579,17 +596,11 @@ class ExcelService {
       const tierInfo = customerTiers[nip];
       const tier = tierInfo?.tier || "T3";
 
-      const rowsForCustomer = (Array.isArray(visitRows) ? visitRows : []).filter(
-        (v) => visitNipKey(v) === key
-      );
+      const rowsForCustomer = visitRows.filter((v) => v.clientNip === key);
       let visitFrequency = "Brak wizyt w danych";
       if (rowsForCustomer.length > 0) {
         const dates = rowsForCustomer
-          .map((v) =>
-            this.parseDate(
-              v["Data"] || v["Data_Wizyty"] || v["Data wizyty"] || ""
-            )
-          )
+          .map((v) => this.parseDate(v.visitDate))
           .filter((d) => d instanceof Date && !Number.isNaN(d.getTime()));
         const spanMs =
           dates.length >= 2
@@ -617,16 +628,32 @@ class ExcelService {
   }
 
   // Metoda pomocnicza do analizy struktury danych
-  analyzeDataStructure(data) {
+  analyzeDataStructure(data: SalesRow[]): DataStructureInfo {
     if (!data || data.length === 0) {
       return { columns: [], sampleData: [] };
     }
 
-    const columns = Object.keys(data[0]);
+    const columns: string[] = [
+      "productName",
+      "category",
+      "revenue",
+      "margin",
+      "quantity",
+      "customerNip",
+      "customerName",
+      "salesperson",
+      "saleDate",
+    ];
     const sampleData = data.slice(0, 5);
 
     return { columns, sampleData };
   }
 }
 
-module.exports = new ExcelService();
+export const excelService = new ExcelService();
+export type {
+  PaymentRow,
+  SalesRow,
+  ValidatedExcelWorkbook,
+  VisitRow,
+} from "./excelTypes";

@@ -16,49 +16,36 @@ import type {
   TestDataInfoResponse,
 } from "../types/api";
 import { createLogger } from "../services/appLogger";
-
-const log = createLogger("routes/analytics");
+import { ValidationError } from "../errors";
+import { excelService } from "../services/excelService";
+import { reportService } from "../services/reportService";
+import type { ReportAnalysisPayload } from "../services/reportTypes";
 import { runComprehensiveExpertAi } from "../services/comprehensiveExpertAi";
 import { runAgentInsight, runRouteOptimization } from "../services/aiAgents";
 import { generateHybridAIRecommendations } from "../services/recommendationEnricher";
 import type { AgentInsightKey } from "../services/aiAgents";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const excelService = require("../services/excelService") as {
-  readFile: (p: string) => Record<string, Record<string, unknown>[]>;
-  analyzeVisits: (rows: Record<string, unknown>[]) => unknown;
-  analyzeSales: (rows: Record<string, unknown>[]) => unknown;
-  analyzePayments: (rows: Record<string, unknown>[]) => unknown;
-  calculateMetrics: (v: unknown, s: unknown) => unknown;
-};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const reportService = require("../services/reportService") as {
-  generatePDFReport: (d: unknown) => Promise<unknown>;
-  generateHTMLReport: (d: unknown) => Promise<unknown>;
-};
+const log = createLogger("routes/analytics");
 
 const router = express.Router();
 
-function flattenWorkbookRows(
-  data: Record<string, Record<string, unknown>[]>
-): Record<string, unknown>[] {
-  const rows: Record<string, unknown>[] = [];
-  for (const v of Object.values(data)) {
-    if (Array.isArray(v)) {
-      for (const row of v) {
-        if (row && typeof row === "object") {
-          rows.push(row as Record<string, unknown>);
-        }
-      }
-    }
-  }
-  return rows;
+function validationErrorResponse(
+  res: Response,
+  error: ValidationError
+): void {
+  res.status(error.statusCode).json({ error: error.publicMessage });
 }
 
-router.get("/test-data-info", (_req: Request, res: Response) => {
+router.get("/test-data-info", async (_req: Request, res: Response) => {
   try {
     const testFilePath = path.join(__dirname, "..", "dane_testowe.xlsx");
-    const exists = fs.existsSync(testFilePath);
+    let exists = false;
+    try {
+      await fs.promises.access(testFilePath);
+      exists = true;
+    } catch {
+      exists = false;
+    }
     const body: TestDataInfoResponse = {
       testFileExists: exists,
       testFilePath: exists ? testFilePath : null,
@@ -80,7 +67,6 @@ router.post(
     try {
       const { filename } = req.body as { filename: string };
       const workbook = await readWorkbookFromUpload(filename);
-      const data = flattenWorkbookRows(workbook);
 
       const kpis = {
         totalRevenue: 0,
@@ -92,31 +78,20 @@ router.post(
         productsSold: {} as Record<string, { quantity: number; value: number }>,
       };
 
-      data.forEach((row) => {
-        const value = parseFloat(
-          String(row["Wartosc"] || row["Wartość"] || row["Value"] || 0)
-        );
-        kpis.totalRevenue += value;
+      workbook.sales.forEach((row) => {
+        kpis.totalRevenue += row.revenue;
         kpis.totalOrders++;
 
-        const customerId =
-          row["ID_Klienta"] || row["CustomerID"] || row["Klient"];
-        if (customerId) {
-          kpis.uniqueCustomers.add(String(customerId));
+        if (row.customerNip) {
+          kpis.uniqueCustomers.add(row.customerNip);
         }
 
-        const productName =
-          String(
-            row["Nazwa_Produktu"] || row["Product"] || row["Produkt"] || "Nieznany"
-          );
+        const productName = row.productName;
         if (!kpis.productsSold[productName]) {
           kpis.productsSold[productName] = { quantity: 0, value: 0 };
         }
-        kpis.productsSold[productName].quantity += parseInt(
-          String(row["Ilosc"] || row["Ilość"] || row["Quantity"] || 1),
-          10
-        );
-        kpis.productsSold[productName].value += value;
+        kpis.productsSold[productName].quantity += Math.round(row.quantity) || 1;
+        kpis.productsSold[productName].value += row.revenue;
       });
 
       kpis.averageOrderValue =
@@ -142,11 +117,15 @@ router.post(
         topProducts,
         customerRetention: kpis.customerRetention,
         uniqueCustomers: kpis.uniqueCustomers.size,
-        rawDataSample: data.slice(0, 5),
+        rawDataSample: workbook.sales.slice(0, 5),
       };
 
       res.json(out);
     } catch (error) {
+      if (error instanceof ValidationError) {
+        validationErrorResponse(res, error);
+        return;
+      }
       if (error instanceof InvalidFilenameError) {
         log.warn("Invalid filename w /analytics/dashboard", { detail: error.message });
         res.status(400).json({ error: "Invalid filename" });
@@ -170,22 +149,16 @@ router.post(
       const { filename } = req.body as { filename: string };
       const excelData = await readWorkbookFromUpload(filename);
 
-      const visitAnalysis = excelData["Wizyty"]
-        ? excelService.analyzeVisits(excelData["Wizyty"])
+      const visitAnalysis = excelData.visits.length
+        ? excelService.analyzeVisits(excelData.visits)
         : null;
 
-      const salesAnalysis =
-        excelData["Sprzedaż"] || excelData["Sprzedaz"]
-          ? excelService.analyzeSales(
-              (excelData["Sprzedaż"] || excelData["Sprzedaz"]) as Record<
-                string,
-                unknown
-              >[]
-            )
-          : null;
+      const salesAnalysis = excelData.sales.length
+        ? excelService.analyzeSales(excelData.sales)
+        : null;
 
-      const paymentAnalysis = excelData["Faktury"]
-        ? excelService.analyzePayments(excelData["Faktury"])
+      const paymentAnalysis = excelData.payments.length
+        ? excelService.analyzePayments(excelData.payments)
         : null;
 
       const metrics =
@@ -209,20 +182,20 @@ router.post(
         aiRecommendations,
         aiRecommendationsMeta,
         summary: {
-          totalRevenue: (salesAnalysis as { totalRevenue?: number })?.totalRevenue || 0,
-          totalVisits: (visitAnalysis as { totalVisits?: number })?.totalVisits || 0,
-          conversionRate:
-            (visitAnalysis as { conversionRate?: number })?.conversionRate || 0,
-          overdueAmount:
-            (paymentAnalysis as { totalOutstanding?: number })?.totalOutstanding || 0,
-          revenuePerKilometer:
-            (metrics as { revenuePerKilometer?: string | number })?.revenuePerKilometer ||
-            0,
+          totalRevenue: salesAnalysis?.totalRevenue ?? 0,
+          totalVisits: visitAnalysis?.totalVisits ?? 0,
+          conversionRate: visitAnalysis?.conversionRate ?? 0,
+          overdueAmount: paymentAnalysis?.totalOutstanding ?? 0,
+          revenuePerKilometer: metrics?.revenuePerKilometer ?? 0,
         },
       };
 
       res.json(analysisResult);
     } catch (error) {
+      if (error instanceof ValidationError) {
+        validationErrorResponse(res, error);
+        return;
+      }
       if (error instanceof InvalidFilenameError) {
         log.warn("Invalid filename w /analytics/comprehensive-analysis", {
           detail: error.message,
@@ -263,16 +236,14 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { analysisData, format } = req.body as {
-        analysisData: unknown;
+        analysisData: ReportAnalysisPayload;
         format: "pdf" | "html";
       };
 
-      let report: unknown;
-      if (format === "pdf") {
-        report = await reportService.generatePDFReport(analysisData);
-      } else {
-        report = await reportService.generateHTMLReport(analysisData);
-      }
+      const report =
+        format === "pdf"
+          ? await reportService.generatePDFReport(analysisData)
+          : await reportService.generateHTMLReport(analysisData);
 
       res.json({
         success: true,

@@ -1,66 +1,19 @@
 import type { ProductRotationMetricRow } from "../shared/api-types";
+import type { SalesRow, ValidatedExcelWorkbook, VisitRow } from "../types/excelTypes";
+import { excelService } from "./excelService";
 import { readWorkbookFromUpload } from "../utils/uploadReader";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const excelService = require("./excelService") as {
-  analyzeVisits: (visitData: Record<string, unknown>[]) => Record<string, unknown>;
-  analyzeSales: (salesData: Record<string, unknown>[]) => {
-    salesByProduct: Record<
-      string,
-      { revenue: number; quantity: number; category?: string; lastSaleDate?: Date }
-    >;
-    salesByCustomer?: Record<
-      string,
-      {
-        name: string;
-        revenue: number;
-        orders: number;
-        lastOrderDate?: Date;
-        products?: Set<string>;
-      }
-    >;
-  };
-};
-
-export function extractVisitRows(
-  excelData: Record<string, Record<string, unknown>[]>
-): Record<string, unknown>[] {
-  if (excelData["Wizyty"]?.length) return excelData["Wizyty"];
-  if (excelData["Wizyty "]?.length) return excelData["Wizyty "];
-  for (const key of Object.keys(excelData)) {
-    const rows = excelData[key];
-    if (!Array.isArray(rows) || rows.length === 0) continue;
-    const first = rows[0] as Record<string, unknown>;
-    if ("Opiekun" in first || "Sprzedażowa" in first || "Dystans_km" in first) {
-      return rows;
-    }
-  }
-  return [];
+export function extractVisitRows(workbook: ValidatedExcelWorkbook): VisitRow[] {
+  return workbook.visits;
 }
 
-export function extractSalesRows(
-  excelData: Record<string, Record<string, unknown>[]>
-): Record<string, unknown>[] {
-  if (excelData["Sprzedaż"]?.length) return excelData["Sprzedaż"];
-  if (excelData["Sprzedaz"]?.length) return excelData["Sprzedaz"];
-  for (const key of Object.keys(excelData)) {
-    const rows = excelData[key];
-    if (!Array.isArray(rows) || rows.length === 0) continue;
-    const first = rows[0] as Record<string, unknown>;
-    if (
-      "Nazwa_Produktu" in first ||
-      "Produkt" in first ||
-      "Product" in first
-    ) {
-      return rows;
-    }
-  }
-  return [];
+export function extractSalesRows(workbook: ValidatedExcelWorkbook): SalesRow[] {
+  return workbook.sales;
 }
 
 export async function readWorkbookFromUploads(
   filename: string
-): Promise<Record<string, Record<string, unknown>[]>> {
+): Promise<ValidatedExcelWorkbook> {
   return readWorkbookFromUpload(filename);
 }
 
@@ -71,7 +24,7 @@ export async function buildProductRotationMetrics(
   const rows = extractSalesRows(excelData);
   if (!rows.length) return [];
 
-  const sales = excelService.analyzeSales(rows as Record<string, unknown>[]);
+  const sales = excelService.analyzeSales(rows);
   const byProduct = sales.salesByProduct || {};
   const entries = Object.entries(byProduct);
   if (!entries.length) return [];
@@ -96,10 +49,10 @@ export async function buildProductRotationMetrics(
 
 export async function analyzeSalesFromFile(filename: string) {
   const rows = extractSalesRows(await readWorkbookFromUploads(filename));
-  return excelService.analyzeSales(rows as Record<string, unknown>[]);
+  return excelService.analyzeSales(rows);
 }
 
 export async function analyzeVisitsFromFile(filename: string) {
   const rows = extractVisitRows(await readWorkbookFromUploads(filename));
-  return excelService.analyzeVisits(rows as Record<string, unknown>[]);
+  return excelService.analyzeVisits(rows);
 }

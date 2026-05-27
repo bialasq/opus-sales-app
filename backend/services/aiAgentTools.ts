@@ -182,27 +182,32 @@ async function toolCompareWithPreviousPeriod(
   } catch {
     return { found: false, message: "Brak bieżącego pliku" };
   }
-  if (!fs.existsSync(currentPath)) {
+  try {
+    await fs.promises.access(currentPath);
+  } catch {
     return { found: false, message: "Brak bieżącego pliku" };
   }
 
-  const currentStat = fs.statSync(currentPath);
+  const currentStat = await fs.promises.stat(currentPath);
   const currentProducts = await ctx.getProducts();
   const currentRevenue = currentProducts.reduce((s, p) => s + p.totalValue, 0);
 
-  const candidates = fs
-    .readdirSync(uploadsDir)
-    .filter((f) => /\.(xlsx|xls)$/i.test(f) && f !== ctx.filename)
-    .map((name) => {
-      let p: string;
-      try {
-        p = resolveUploadPath(name);
-      } catch {
-        return null;
-      }
-      const st = fs.statSync(p);
-      return { name, mtime: st.mtimeMs };
-    })
+  const names = await fs.promises.readdir(uploadsDir);
+  const candidateEntries = await Promise.all(
+    names
+      .filter((f) => /\.(xlsx|xls)$/i.test(f) && f !== ctx.filename)
+      .map(async (name) => {
+        let p: string;
+        try {
+          p = resolveUploadPath(name);
+        } catch {
+          return null;
+        }
+        const st = await fs.promises.stat(p);
+        return { name, mtime: st.mtimeMs };
+      })
+  );
+  const candidates = candidateEntries
     .filter((f): f is { name: string; mtime: number } => f !== null)
     .filter((f) => f.mtime < currentStat.mtimeMs)
     .sort((a, b) => b.mtime - a.mtime);

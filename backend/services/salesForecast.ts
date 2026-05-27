@@ -1,3 +1,4 @@
+import type { SalesRow } from "../types/excelTypes";
 import { extractSalesRows, readWorkbookFromUploads } from "./salesMetrics";
 
 export type DailySeriesPoint = { dayIndex: number; dateKey: string; quantity: number; revenue: number };
@@ -17,41 +18,22 @@ export type ForecastResult = {
   calendarGapDaysFilled?: number;
 };
 
-function parseSaleDate(row: Record<string, unknown>): Date | null {
-  const raw =
-    row["Data_Sprzedaży"] ??
-    row["Data_Sprzedazy"] ??
-    row["Data"] ??
-    row["data"];
-  if (!raw) return null;
-  if (raw instanceof Date) return raw;
-  if (typeof raw === "number") {
-    return new Date((raw - 25569) * 86400 * 1000);
-  }
-  const parsed = Date.parse(String(raw));
+function parseSaleDate(row: SalesRow): Date | null {
+  if (!row.saleDate) return null;
+  const parsed = Date.parse(row.saleDate);
   return Number.isNaN(parsed) ? null : new Date(parsed);
 }
 
-function getProductName(row: Record<string, unknown>): string {
-  return String(
-    row["Nazwa_Produktu"] ?? row["Produkt"] ?? row["Product"] ?? "Nieznany"
-  ).trim();
+function getProductName(row: SalesRow): string {
+  return row.productName.trim();
 }
 
-function getQuantity(row: Record<string, unknown>): number {
-  const q = row["Ilość"] ?? row["Ilosc"] ?? row["Quantity"] ?? row["quantity"] ?? 0;
-  return Number(q) || 0;
+function getQuantity(row: SalesRow): number {
+  return Math.round(row.quantity) || 0;
 }
 
-function getRevenue(row: Record<string, unknown>): number {
-  const v =
-    row["Wartość"] ??
-    row["Wartosc"] ??
-    row["Kwota"] ??
-    row["Value"] ??
-    row["Cena"] ??
-    0;
-  return Number(v) || 0;
+function getRevenue(row: SalesRow): number {
+  return row.revenue;
 }
 
 /** Prosta regresja liniowa: y = intercept + slope * x */
@@ -83,7 +65,7 @@ export function linearRegression(points: { x: number; y: number }[]): {
 }
 
 function buildDailySeries(
-  rows: Record<string, unknown>[],
+  rows: SalesRow[],
   productFilter?: string
 ): DailySeriesPoint[] {
   const byDay = new Map<string, { quantity: number; revenue: number }>();

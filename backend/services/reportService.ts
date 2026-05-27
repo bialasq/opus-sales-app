@@ -1,22 +1,39 @@
-// backend/services/reportService.js
-const PDFDocument = require("pdfkit");
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
+import PDFDocument from "pdfkit";
+import type {
+  AiRecommendation,
+  ReportAnalysisPayload,
+  ReportFileResult,
+} from "./reportTypes";
+import type {
+  CombinedMetrics,
+  PaymentAnalysis,
+  SalesAnalysis,
+  VisitAnalysis,
+} from "./excelTypes";
 
 class ReportService {
+  private readonly reportsDir: string;
+
   constructor() {
     this.reportsDir = path.join(__dirname, "..", "reports");
-    if (!fs.existsSync(this.reportsDir)) {
-      fs.mkdirSync(this.reportsDir, { recursive: true });
-    }
   }
 
-  async generatePDFReport(data, type = "kompleksowy") {
+  private async ensureReportsDir(): Promise<void> {
+    await fs.promises.mkdir(this.reportsDir, { recursive: true });
+  }
+
+  async generatePDFReport(
+    data: ReportAnalysisPayload,
+    type = "kompleksowy"
+  ): Promise<ReportFileResult> {
+    await this.ensureReportsDir();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `raport_${type}_${timestamp}.pdf`;
     const filepath = path.join(this.reportsDir, filename);
 
-    return new Promise((resolve, reject) => {
+    return new Promise<ReportFileResult>((resolve, reject) => {
       const doc = new PDFDocument({
         size: "A4",
         margin: 50,
@@ -71,7 +88,7 @@ class ReportService {
     });
   }
 
-  addVisitSection(doc, visitAnalysis) {
+  private addVisitSection(doc: PDFDocument, visitAnalysis: VisitAnalysis): void {
     doc.addPage();
     doc.fontSize(16).text("Analiza Wizyt", { underline: true });
     doc.moveDown();
@@ -104,7 +121,7 @@ class ReportService {
     );
   }
 
-  addSalesSection(doc, salesAnalysis) {
+  private addSalesSection(doc: PDFDocument, salesAnalysis: SalesAnalysis): void {
     doc.addPage();
     doc.fontSize(16).text("Analiza Sprzedaży", { underline: true });
     doc.moveDown();
@@ -138,9 +155,9 @@ class ReportService {
     doc.fontSize(14).text("Klasyfikacja klientów:", { underline: true });
     doc.fontSize(11);
 
-    const tierCounts = { T1: 0, T2: 0, T3: 0 };
+    const tierCounts: Record<string, number> = { T1: 0, T2: 0, T3: 0 };
     Object.values(salesAnalysis.customerTiers).forEach((tier) => {
-      tierCounts[tier.tier]++;
+      tierCounts[tier.tier] = (tierCounts[tier.tier] ?? 0) + 1;
     });
 
     doc.text(`Tier 1 (Kluczowi): ${tierCounts.T1} klientów`);
@@ -163,7 +180,7 @@ class ReportService {
     }
   }
 
-  addMetricsSection(doc, metrics) {
+  private addMetricsSection(doc: PDFDocument, metrics: CombinedMetrics): void {
     doc.addPage();
     doc.fontSize(16).text("Kluczowe Metryki", { underline: true });
     doc.moveDown();
@@ -189,7 +206,10 @@ class ReportService {
     });
   }
 
-  addPaymentSection(doc, paymentAnalysis) {
+  private addPaymentSection(
+    doc: PDFDocument,
+    paymentAnalysis: PaymentAnalysis
+  ): void {
     doc.addPage();
     doc.fontSize(16).text("Analiza Płatności", { underline: true });
     doc.moveDown();
@@ -222,7 +242,10 @@ class ReportService {
     }
   }
 
-  addAIRecommendations(doc, recommendations) {
+  private addAIRecommendations(
+    doc: PDFDocument,
+    recommendations: AiRecommendation[]
+  ): void {
     doc.addPage();
     doc.fontSize(16).text("Rekomendacje AI", { underline: true });
     doc.moveDown();
@@ -240,14 +263,18 @@ class ReportService {
     });
   }
 
-  formatCurrency(value) {
+  private formatCurrency(value: number): string {
     return new Intl.NumberFormat("pl-PL", {
       style: "currency",
       currency: "PLN",
     }).format(value);
   }
 
-  async generateHTMLReport(data, type = "kompleksowy") {
+  async generateHTMLReport(
+    data: ReportAnalysisPayload,
+    type = "kompleksowy"
+  ): Promise<ReportFileResult> {
+    await this.ensureReportsDir();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `raport_${type}_${timestamp}.html`;
     const filepath = path.join(this.reportsDir, filename);
@@ -344,7 +371,7 @@ class ReportService {
 </body>
 </html>`;
 
-    fs.writeFileSync(filepath, html);
+    await fs.promises.writeFile(filepath, html, "utf8");
 
     return {
       filename: filename,
@@ -353,7 +380,7 @@ class ReportService {
     };
   }
 
-  generateHTMLSections(data) {
+  private generateHTMLSections(data: ReportAnalysisPayload): string {
     let sections = "";
 
     if (data.visitAnalysis) {
@@ -379,7 +406,7 @@ class ReportService {
     return sections;
   }
 
-  generateVisitHTML(visitAnalysis) {
+  private generateVisitHTML(visitAnalysis: VisitAnalysis): string {
     return `
         <h2>Analiza Wizyt</h2>
         <div class="metric">
@@ -426,7 +453,7 @@ class ReportService {
     `;
   }
 
-  generateSalesHTML(salesAnalysis) {
+  private generateSalesHTML(salesAnalysis: SalesAnalysis): string {
     return `
         <h2>Analiza Sprzedaży</h2>
         <div class="metric">
@@ -488,7 +515,7 @@ class ReportService {
     `;
   }
 
-  generateMetricsHTML(metrics) {
+  private generateMetricsHTML(metrics: CombinedMetrics): string {
     return `
         <h2>Kluczowe Metryki</h2>
         <div class="metric">
@@ -530,7 +557,7 @@ class ReportService {
     `;
   }
 
-  generatePaymentHTML(paymentAnalysis) {
+  private generatePaymentHTML(paymentAnalysis: PaymentAnalysis): string {
     return `
         <h2>Analiza Płatności</h2>
         <div class="metric">
@@ -577,7 +604,9 @@ class ReportService {
     `;
   }
 
-  generateRecommendationsHTML(recommendations) {
+  private generateRecommendationsHTML(
+    recommendations: AiRecommendation[]
+  ): string {
     return `
         <h2>Rekomendacje AI</h2>
         ${recommendations
@@ -599,4 +628,5 @@ class ReportService {
   }
 }
 
-module.exports = new ReportService();
+export const reportService = new ReportService();
+export type { ReportAnalysisPayload, ReportFileResult } from "./reportTypes";

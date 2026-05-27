@@ -3,6 +3,7 @@ import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/products");
 import { validateBody } from "../middleware/validateRequest";
+import { ValidationError } from "../errors";
 import { InvalidFilenameError } from "../utils/filePathResolver";
 import { readWorkbookFromUpload } from "../utils/uploadReader";
 import { filenameBodySchema, promotionsBodySchema } from "../schemas/apiRequests";
@@ -51,6 +52,10 @@ router.post(
 
       res.json(out);
     } catch (error) {
+      if (error instanceof ValidationError) {
+        res.status(error.statusCode).json({ error: error.publicMessage });
+        return;
+      }
       if (error instanceof InvalidFilenameError) {
         log.warn("Invalid filename w /products/analysis", { detail: error.message });
         res.status(400).json({ error: "Invalid filename" });
@@ -136,6 +141,10 @@ router.post(
 
       res.json(suggestions.slice(0, 5));
     } catch (error) {
+      if (error instanceof ValidationError) {
+        res.status(error.statusCode).json({ error: error.publicMessage });
+        return;
+      }
       log.error("Błąd generowania promocji:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({ error: msg });

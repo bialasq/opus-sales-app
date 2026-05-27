@@ -47,7 +47,27 @@ Template: **`backend/.env.example`**. Minimum for AI:
 
 Without keys, the app still runs — some modules use **heuristics / fallback** instead of an LLM.
 
+**API auth (production):** set `API_KEY` in `backend/.env` and the same value as `VUE_APP_API_KEY` in `frontend/.env.local` (header `x-api-key` on `/api/*`). See `backend/.env.example`.
+
 Frontend: see **`frontend/.env.example`** (proxy vs full API URL).
+
+### Excel ingestion & validation
+
+Uploaded workbooks are parsed **asynchronously** (`fs.promises` + `XLSX.read` on a buffer — no blocking `readFileSync` on the event loop).
+
+After parse, rows are mapped to strict domain types in **`backend/types/excelTypes.ts`**:
+
+| Type | Sheets (examples) |
+|------|-------------------|
+| `VisitRow` | `Wizyty` — `region`, `salesperson`, `isSalesVisit`, `distanceKm`, … |
+| `SalesRow` | `Sprzedaż` / `Sprzedaz` — `productName`, `revenue`, `quantity`, `customerNip`, … |
+| `PaymentRow` | `Faktury` — `invoiceNumber`, `amount`, `dueDate`, … |
+
+Validation runs in **`backend/services/excelRowValidation.ts`**. Missing required columns or wrong types → **`ValidationError`** (HTTP 400 on analytics routes) with **filename, sheet name, and Excel row number**.
+
+The AI insights flow treats validation like other guardrails: **`meta.partial`**, **`partialReason: "validation_error"`**, and a user-facing **`guardrailMessage`** instead of sending bad data to the LLM.
+
+Core Excel/report logic lives in TypeScript: **`excelService.ts`**, **`reportService.ts`** (legacy `.js` removed).
 
 ### Docker
 
@@ -80,7 +100,9 @@ Ports and proxy are documented in `docker-compose.yml` and `frontend/.env.exampl
 | `backend/` | `npm run dev` | API with nodemon |
 | `backend/` | `npm run start` | API without watcher |
 | `backend/` | `npm run typecheck` | TypeScript check |
+| `backend/` | `npm test` | Vitest (path resolver, auth, budget, Excel validation, HTTP smoke) |
 | `backend/` | `npm run generate-test-data` | Creates `backend/dane_testowe.xlsx` — Warmia-Mazury sample data (Olsztyn region; generate locally) |
+| `backend/` | `npm run gc:logs` | Delete trace JSON older than `LOG_RETENTION_DAYS` (default 30) |
 | `backend/` | `npm run test:agent` | Agent unit tests (if configured) |
 | `frontend/` | `npm run dev` | Dev server + HMR |
 | `frontend/` | `npm run build` | Production build (typecheck + webpack) |
@@ -90,6 +112,8 @@ Ports and proxy are documented in `docker-compose.yml` and `frontend/.env.exampl
 
 ```
 backend/          Express, /api/* routes, services (Excel, AI, reports)
+  types/          Domain types (e.g. excelTypes.ts — SalesRow, VisitRow)
+  services/       excelService.ts, excelRowValidation.ts, agentOrchestrator.ts, …
   shared/         Shared API types (also imported in frontend as @shared)
 frontend/         Vue 3, views, ECharts panels
 docker-compose.yml
@@ -156,6 +180,8 @@ Persona blocks live in `agent_v2.ts` (`STRATEGIST_PERSONA_*`). The Strategist sy
 
 On stop, **`buildPartialAgenticResult`** returns partial suggestions + `meta.partial` / `partialReason` / `guardrailMessage`.
 
+`partialReason` values include `max_iterations`, `token_limit`, `budget_exceeded`, and **`validation_error`** (invalid Excel structure before or during workbook load).
+
 #### Post-orchestration (`finalizeResponse` in `aiService.ts`)
 
 1. **`evaluateAllSuggestions`** (`agentEval.ts`) — fuzzy-matches product names mentioned in each suggestion against the **Analyst facts** and the **product catalog**; attaches `eval` flags (`verified`, `potential_hallucination`, etc.) and an `evalSummary`.
@@ -193,6 +219,8 @@ On stop, **`buildPartialAgenticResult`** returns partial suggestions + `meta.par
 2. **`ECONNREFUSED`** — backend not running or wrong proxy port.
 3. **Empty dashboard** — column names may not match the Excel parser (e.g. missing `Sprzedaż` / `Wizyty` sheets).
 4. **AI shows rules / fallback** — missing or invalid API key / model; check backend logs and `.env`.
+5. **400 on upload / analysis — Excel validation** — message names sheet and row; fix columns (`Nazwa_Produktu`, `Wartość`, `Województwo`, `Opiekun`, …) or regenerate test data with `npm run generate-test-data`.
+6. **401 on `/api/*`** — set matching `API_KEY` (backend) and `VUE_APP_API_KEY` (frontend).
 
 ### First push to GitHub
 
@@ -245,6 +273,18 @@ Szablon: **`backend/.env.example`**. Klucze **tylko** w lokalnym `backend/.env` 
 
 Frontend: **`frontend/.env.example`**.
 
+**Auth API:** `API_KEY` w `backend/.env` oraz `VUE_APP_API_KEY` we frontendzie (nagłówek `x-api-key`).
+
+### Walidacja Excela
+
+Pliki są czytane **asynchronicznie** (bufor + `XLSX.read`, bez blokującego I/O na event loop).
+
+Wiersze trafiają do typów z **`backend/types/excelTypes.ts`** (`VisitRow`, `SalesRow`, `PaymentRow`). Walidacja: **`excelRowValidation.ts`**. Błąd struktury → **`ValidationError`** (HTTP 400) z nazwą pliku, arkusza i numerem wiersza.
+
+Pipeline AI przy błędzie walidacji zwraca wynik częściowy: **`partialReason: "validation_error"`** (bez wysyłania `undefined` do LLM).
+
+Serwisy Excel/raportów: **`excelService.ts`**, **`reportService.ts`** (TypeScript).
+
 ### Docker
 
 Z katalogu głównego:
@@ -264,7 +304,9 @@ docker compose up
 |--------|---------|--------|
 | `backend/` | `npm run dev` | API (nodemon) |
 | `backend/` | `npm run typecheck` | TypeScript |
+| `backend/` | `npm test` | Vitest (m.in. walidacja Excel, auth, smoke HTTP) |
 | `backend/` | `npm run generate-test-data` | `dane_testowe.xlsx` — dane testowe **woj. warmińsko-mazurskie** (baza Olsztyn) |
+| `backend/` | `npm run gc:logs` | GC starych trace w `logs/traces/` |
 | `frontend/` | `npm run dev` | Serwer dev + HMR |
 | `frontend/` | `npm run build` | Build produkcyjny |
 
@@ -325,6 +367,7 @@ Bloki person w **`backend/prompts/agent_v2.ts`**. Do promptu Stratega doklejany 
 - **`AGENT_MAX_ITERATIONS`** (domyślnie 5) — maks. rund pętli ReAct.
 - **`AGENT_SESSION_TOKEN_LIMIT`** (domyślnie 28000) — sumaryczny budżet tokenów na sesję Analityk+Strateg.
 - **Budżet narzędzi** — `shouldStopForToolBudget`: po `MAX_ITERATIONS` krokach z narzędziami przerywamy z wynikiem częściowym (`meta.partial`, `partialReason`).
+- **`validation_error`** — nieprawidłowa struktura Excela (komunikat w UI zamiast wysyłania błędnych danych do LLM).
 
 #### Po orkiestracji (`finalizeResponse`)
 
@@ -365,6 +408,8 @@ Bloki person w **`backend/prompts/agent_v2.ts`**. Do promptu Stratega doklejany 
 2. **`ECONNREFUSED`** — backend wyłączony lub zły port.
 3. **Pusty dashboard** — inne nazwy kolumn / arkuszy w Excelu.
 4. **Tryb regułowy AI** — brak lub błędny klucz API / model w `.env`.
+5. **400 — walidacja Excela** — komunikat wskazuje arkusz i wiersz; popraw kolumny lub `npm run generate-test-data`.
+6. **401 na `/api/*`** — ustaw `API_KEY` i `VUE_APP_API_KEY`.
 
 ### Pierwszy push na GitHub
 

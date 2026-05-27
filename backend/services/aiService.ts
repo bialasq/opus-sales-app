@@ -10,8 +10,9 @@ import type {
 
 } from "../shared/api-types";
 
+import { ValidationError } from "../errors";
 import { evaluateAllSuggestions } from "./agentEval";
-
+import { GUARDRAIL_MESSAGES } from "./agentGuardrails";
 import { SalesWorkbookContext } from "./aiAgentTools";
 
 import { buildCacheKey, getCachedInsights, setCachedInsights } from "./agentCache";
@@ -161,7 +162,30 @@ function fallbackInsights(
 
 }
 
-
+function buildExcelValidationInsightsResponse(
+  sessionId: string,
+  err: ValidationError
+): AiInsightsResponse {
+  const detail = err.publicMessage;
+  return {
+    suggestions: [
+      {
+        title: "Nieprawidłowa struktura pliku Excel",
+        description: detail,
+        priority: "high",
+      },
+    ],
+    meta: {
+      provider: "fallback",
+      productCount: 0,
+      orchestration: "validation-error",
+      sessionId,
+      partial: true,
+      partialReason: "validation_error",
+      guardrailMessage: `${GUARDRAIL_MESSAGES.validation_error} Szczegóły: ${detail}`,
+    },
+  };
+}
 
 function buildMetaFromWorkflow(
 
@@ -408,8 +432,15 @@ export async function getAiInsightsForFile(
 
 
   const ctx = new SalesWorkbookContext(filename);
-
-  const products = await ctx.getProducts();
+  let products: ProductRotationMetricRow[];
+  try {
+    products = await ctx.getProducts();
+  } catch (e) {
+    if (e instanceof ValidationError) {
+      return buildExcelValidationInsightsResponse(sessionId, e);
+    }
+    throw e;
+  }
 
   const provider = chooseProvider();
 

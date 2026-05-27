@@ -6,15 +6,9 @@ import { validateBody } from "../middleware/validateRequest";
 import { InvalidFilenameError } from "../utils/filePathResolver";
 import { readWorkbookFromUpload } from "../utils/uploadReader";
 import { filenameBodySchema, visitPlanBodySchema } from "../schemas/apiRequests";
-import type { CustomerProfilesResponse, VisitPlanResponse } from "../types/api";
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const excelService = require("../services/excelService") as {
-  readFile: (p: string) => Record<string, Record<string, unknown>[]>;
-  analyzeCustomerData: (
-    data: Record<string, Record<string, unknown>[]>
-  ) => CustomerProfilesResponse;
-};
+import type { VisitPlanResponse } from "../types/api";
+import { ValidationError } from "../errors";
+import { excelService } from "../services/excelService";
 
 const router = express.Router();
 
@@ -28,6 +22,10 @@ router.post(
       const customerProfiles = excelService.analyzeCustomerData(data);
       res.json(customerProfiles);
     } catch (error) {
+      if (error instanceof ValidationError) {
+        res.status(error.statusCode).json({ error: error.publicMessage });
+        return;
+      }
       if (error instanceof InvalidFilenameError) {
         log.warn("Invalid filename w /customers/profile", { detail: error.message });
         res.status(400).json({ error: "Invalid filename" });

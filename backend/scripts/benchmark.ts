@@ -7,30 +7,39 @@ import fs from "fs";
 import path from "path";
 import { getAiInsightsForFile } from "../services/aiService";
 
+async function pickLatestUpload(uploadsDir: string): Promise<string> {
+  const files = (await fs.promises.readdir(uploadsDir)).filter((f) =>
+    /\.(xlsx|xls)$/i.test(f)
+  );
+  if (!files.length) {
+    console.error("Brak plików .xlsx w backend/uploads/. Wgraj plik lub podaj nazwę:");
+    console.error("  npm run benchmark -- moj_plik.xlsx");
+    process.exit(1);
+  }
+  const withMtime = await Promise.all(
+    files.map(async (name) => {
+      const st = await fs.promises.stat(path.join(uploadsDir, name));
+      return { name, mtime: st.mtimeMs };
+    })
+  );
+  withMtime.sort((a, b) => b.mtime - a.mtime);
+  return withMtime[0].name;
+}
+
 async function main(): Promise<void> {
   const uploadsDir = path.join(__dirname, "..", "uploads");
   const argFile = process.argv[2];
   let filename = argFile;
 
   if (!filename) {
-    const files = fs
-      .readdirSync(uploadsDir)
-      .filter((f) => /\.(xlsx|xls)$/i.test(f));
-    if (!files.length) {
-      console.error("Brak plików .xlsx w backend/uploads/. Wgraj plik lub podaj nazwę:");
-      console.error("  npm run benchmark -- moj_plik.xlsx");
-      process.exit(1);
-    }
-    filename = files.sort(
-      (a, b) =>
-        fs.statSync(path.join(uploadsDir, b)).mtimeMs -
-        fs.statSync(path.join(uploadsDir, a)).mtimeMs
-    )[0];
+    filename = await pickLatestUpload(uploadsDir);
     console.log(`Auto-wybrany plik: ${filename}`);
   }
 
   const filePath = path.join(uploadsDir, filename);
-  if (!fs.existsSync(filePath)) {
+  try {
+    await fs.promises.access(filePath);
+  } catch {
     console.error(`Nie znaleziono: ${filePath}`);
     process.exit(1);
   }
