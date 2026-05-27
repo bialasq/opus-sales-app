@@ -31,8 +31,7 @@ import {
 
 } from "../services/aiService";
 import { planSalesRoute } from "../services/routePlannerService";
-
-
+import { InvalidFilenameError } from "../utils/filePathResolver";
 
 const log = createLogger("routes/ai");
 
@@ -67,20 +66,17 @@ router.get(
       res.json(result);
 
     } catch (error) {
-
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w GET /api/ai/insights", { detail: error.message });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       const message = error instanceof Error ? error.message : "Unknown error";
-
       log.error("GET /api/ai/insights", error);
-
       res.status(500).json({ error: message });
-
     }
-
   }
-
 );
-
-
 
 /** Asynchroniczny start — zwraca sessionId do pollingu */
 
@@ -113,23 +109,19 @@ router.post(
       res.status(202).json({ sessionId, status: "running", current_step: "Przygotowanie analizy…" });
 
     } catch (error) {
-
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w POST /api/ai/insights/run", { detail: error.message });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       const message = error instanceof Error ? error.message : "Unknown error";
-
       log.error("POST /api/ai/insights/run", error);
-
       res.status(500).json({ error: message });
-
     }
-
   }
-
 );
 
-
-
 router.get(
-
   "/insights/job/:sessionId",
 
   validateParams(aiInsightsJobParamsSchema),
@@ -224,6 +216,11 @@ router.post(
       );
       res.json(result);
     } catch (error) {
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w POST /api/ai/plan-route", { detail: error.message });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       const message = error instanceof Error ? error.message : "Unknown error";
       log.error("POST /api/ai/plan-route", error);
       res.status(500).json({ error: message });

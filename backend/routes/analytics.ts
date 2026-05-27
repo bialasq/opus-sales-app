@@ -3,6 +3,10 @@ import path from "path";
 import fs from "fs";
 import { validateBody } from "../middleware/validateRequest";
 import {
+  InvalidFilenameError,
+  resolveUploadPath,
+} from "../utils/filePathResolver";
+import {
   filenameBodySchema,
   generateReportBodySchema,
   comprehensiveExpertAiBodySchema,
@@ -77,7 +81,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = path.join(__dirname, "..", "uploads", filename);
+      const filePath = resolveUploadPath(filename);
       const workbook = excelService.readFile(filePath);
       const data = flattenWorkbookRows(workbook);
 
@@ -146,6 +150,11 @@ router.post(
 
       res.json(out);
     } catch (error) {
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w /analytics/dashboard", { detail: error.message });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       log.error("Błąd analizy danych:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({
@@ -162,7 +171,7 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { filename } = req.body as { filename: string };
-      const filePath = path.join(__dirname, "..", "uploads", filename);
+      const filePath = resolveUploadPath(filename);
       const excelData = excelService.readFile(filePath);
 
       const visitAnalysis = excelData["Wizyty"]
@@ -218,6 +227,13 @@ router.post(
 
       res.json(analysisResult);
     } catch (error) {
+      if (error instanceof InvalidFilenameError) {
+        log.warn("Invalid filename w /analytics/comprehensive-analysis", {
+          detail: error.message,
+        });
+        res.status(400).json({ error: "Invalid filename" });
+        return;
+      }
       log.error("Błąd analizy kompleksowej:", error);
       const msg = error instanceof Error ? error.message : "Error";
       res.status(500).json({

@@ -1,8 +1,14 @@
 import { z } from "zod";
+import { FILENAME_REGEX } from "../utils/filePathResolver";
+
+const uploadFilenameSchema = z
+  .string()
+  .min(1, "filename jest wymagany")
+  .regex(FILENAME_REGEX, "Invalid filename");
 
 /** POST body: operacje na pliku w uploads/ */
 export const filenameBodySchema = z.object({
-  filename: z.string().min(1, "filename jest wymagany"),
+  filename: uploadFilenameSchema,
 });
 
 export type FilenameBody = z.infer<typeof filenameBodySchema>;
@@ -59,7 +65,7 @@ export const aiInsightsBodySchema = z.object({
   data: z.unknown(),
   agentType: aiAgentTypeSchema,
   /** Opcjonalnie: plik w uploads/ — agent używa function calling zamiast pełnego JSON */
-  filename: z.string().min(1).optional(),
+  filename: uploadFilenameSchema.optional(),
 });
 
 export const visitPlanBodySchema = z.object({
@@ -74,7 +80,7 @@ const userInstructionsField = z
 export const aiInsightsQuerySchema = z.object({
   filename: z.preprocess(
     (v) => (Array.isArray(v) ? v[0] : v),
-    z.string().min(1)
+    uploadFilenameSchema
   ),
   userInstructions: z.preprocess(
     (v) => (Array.isArray(v) ? v[0] : v),
@@ -85,7 +91,7 @@ export const aiInsightsQuerySchema = z.object({
 export type AiInsightsQuery = z.infer<typeof aiInsightsQuerySchema>;
 
 export const aiInsightsRunBodySchema = z.object({
-  filename: z.string().min(1),
+  filename: uploadFilenameSchema,
   userInstructions: userInstructionsField,
 });
 
@@ -94,7 +100,7 @@ export const aiInsightsJobParamsSchema = z.object({
 });
 
 export const planRouteBodySchema = z.object({
-  filename: z.string().min(1, "filename jest wymagany"),
+  filename: uploadFilenameSchema,
   userInstructions: userInstructionsField,
 });
 
@@ -106,5 +112,5 @@ export const suggestionFeedbackBodySchema = z.object({
   verdict: z.enum(["approve", "reject"]),
   title: z.string().min(1),
   description: z.string().min(1),
-  filename: z.string().min(1).optional(),
+  filename: uploadFilenameSchema.optional(),
 });

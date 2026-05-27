@@ -1,5 +1,5 @@
-import path from "path";
 import type { ProductRotationMetricRow } from "../shared/api-types";
+import { resolveUploadPath } from "../utils/filePathResolver";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const excelService = require("./excelService") as {
@@ -63,7 +63,7 @@ export function readWorkbookFromUploads(filename: string): Record<
   string,
   Record<string, unknown>[]
 > {
-  const filePath = path.join(__dirname, "..", "uploads", filename);
+  const filePath = resolveUploadPath(filename);
   return excelService.readFile(filePath);
 }
 

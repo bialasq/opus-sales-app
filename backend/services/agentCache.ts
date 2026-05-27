@@ -1,7 +1,7 @@
 import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import type { AiInsightsResponse } from "../shared/api-types";
+import { resolveUploadPath } from "../utils/filePathResolver";
 import { chooseProvider } from "./llmInvoke";
 import { getActivePromptVersion } from "../prompts";
 
@@ -15,13 +15,9 @@ type CacheEntry = {
 
 const memoryCache = new Map<string, CacheEntry>();
 
-function uploadsPath(filename: string): string {
-  return path.join(__dirname, "..", "uploads", filename);
-}
-
 /** Klucz cache: plik + hash treści + wersja promptu + dostawca */
 export function buildCacheKey(filename: string, params: Record<string, unknown> = {}): string {
-  const filePath = uploadsPath(filename);
+  const filePath = resolveUploadPath(filename);
   let filePart = `${filename}:missing`;
   if (fs.existsSync(filePath)) {
     const stat = fs.statSync(filePath);
