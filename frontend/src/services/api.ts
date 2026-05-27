@@ -22,7 +22,26 @@ import type {
  * Pusty = względne "/api" + proxy devServer.
  * Jeśli podasz sam host (np. http://127.0.0.1:3000), dopinamy /api — inaczej axios woła złe ścieżki (404).
  */
+type RuntimeAppConfig = {
+  API_URL?: string;
+  API_KEY?: string;
+  SENTRY_DSN?: string;
+};
+
+function runtimeConfig(): RuntimeAppConfig {
+  if (typeof window !== "undefined") {
+    const cfg = (window as Window & { __APP_CONFIG__?: RuntimeAppConfig })
+      .__APP_CONFIG__;
+    if (cfg) return cfg;
+  }
+  return {};
+}
+
 function getApiRoot(): string {
+  const runtime = runtimeConfig().API_URL?.trim();
+  if (runtime && runtime !== "__API_URL__") {
+    return runtime.replace(/\/$/, "");
+  }
   const vue = process.env.VUE_APP_API_URL;
   if (!vue || !String(vue).trim()) {
     return "/api";
@@ -48,7 +67,11 @@ export const API_ROOT = getApiRoot();
 
 /** Nagłówek API key (VUE_APP_API_KEY) — wspólny dla axios i el-upload. */
 export function getApiKeyHeaders(): Record<string, string> {
-  const key = process.env.VUE_APP_API_KEY?.trim() || "";
+  const runtimeKey = runtimeConfig().API_KEY?.trim();
+  const key =
+    (runtimeKey && runtimeKey !== "__API_KEY__" ? runtimeKey : "") ||
+    process.env.VUE_APP_API_KEY?.trim() ||
+    "";
   if (!key) return {};
   return { "x-api-key": key };
 }
