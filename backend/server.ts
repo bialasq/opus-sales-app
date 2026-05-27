@@ -1,4 +1,14 @@
 import "./loadEnv";
+import { initSentry, setupSentryErrorHandler } from "./observability/sentry";
+import {
+  httpRequestDuration,
+  httpRequestsTotal,
+  registry,
+  refreshBudgetGauge,
+} from "./observability/metrics";
+
+initSentry();
+refreshBudgetGauge();
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
@@ -43,6 +53,28 @@ export function createApp(): Application {
     process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
 
   app.use(requestIdMiddleware);
+
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on("finish", () => {
+      const route =
+        (req.route as { path?: string } | undefined)?.path || req.path;
+      const labels = {
+        method: req.method,
+        route,
+        status: String(res.statusCode),
+      };
+      httpRequestsTotal.inc(labels);
+      httpRequestDuration.observe(labels, (Date.now() - start) / 1000);
+    });
+    next();
+  });
+
+  app.get("/metrics", async (_req, res) => {
+    refreshBudgetGauge();
+    res.set("Content-Type", registry.contentType);
+    res.send(await registry.metrics());
+  });
 
   app.use((req, res, next) => {
     inFlightRequests++;
@@ -245,6 +277,7 @@ export function createApp(): Application {
 
   app.use(multerErrorHandler);
   app.use(notFoundHandler);
+  setupSentryErrorHandler(app);
   app.use(errorHandler);
 
   return app;

@@ -6,6 +6,12 @@ import {
 } from "../utils/budgetManager";
 import { estimateCostUsd } from "./aiLogger";
 import { withRateLimitRetry } from "./llmRetry";
+import {
+  llmCostUsdTotal,
+  llmRequestDuration,
+  llmTokensTotal,
+  refreshBudgetGauge,
+} from "../observability/metrics";
 
 export type LlmProviderActive = "openai" | "anthropic";
 
@@ -129,6 +135,7 @@ async function invokeOpenAiJson(
   const client = createOpenAiClient(apiKey);
   const model = options.modelOverride || process.env.AI_MODEL || "gpt-4o";
 
+  const llmStart = Date.now();
   const res = await withRateLimitRetry(() =>
     client.chat.completions.create({
       model,
@@ -152,7 +159,13 @@ async function invokeOpenAiJson(
     total_tokens: u?.total_tokens ?? 0,
   };
 
-  recordSpend(estimateCostUsd(model, usage), `openai:${model}`);
+  const cost = estimateCostUsd(model, usage);
+  recordSpend(cost, `openai:${model}`);
+  llmTokensTotal.inc({ provider: "openai", model, type: "input" }, usage.prompt_tokens);
+  llmTokensTotal.inc({ provider: "openai", model, type: "output" }, usage.completion_tokens);
+  llmCostUsdTotal.inc({ provider: "openai", model }, cost);
+  llmRequestDuration.observe({ provider: "openai", model }, (Date.now() - llmStart) / 1000);
+  refreshBudgetGauge();
 
   return {
     raw: text,
@@ -178,6 +191,7 @@ async function invokeAnthropicJson(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
 
+  const llmStart = Date.now();
   try {
     const res = await withRateLimitRetry(() =>
       fetch("https://api.anthropic.com/v1/messages", {
@@ -217,7 +231,16 @@ async function invokeAnthropicJson(
       total_tokens: inTok + outTok,
     };
 
-    recordSpend(estimateCostUsd(model, usage), `anthropic:${model}`);
+    const cost = estimateCostUsd(model, usage);
+    recordSpend(cost, `anthropic:${model}`);
+    llmTokensTotal.inc({ provider: "anthropic", model, type: "input" }, inTok);
+    llmTokensTotal.inc({ provider: "anthropic", model, type: "output" }, outTok);
+    llmCostUsdTotal.inc({ provider: "anthropic", model }, cost);
+    llmRequestDuration.observe(
+      { provider: "anthropic", model },
+      (Date.now() - llmStart) / 1000
+    );
+    refreshBudgetGauge();
 
     return {
       raw: text,
