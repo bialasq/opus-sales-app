@@ -1,0 +1,39 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "overrides": {
+    "tailwindcss": {
+      "postcss-load-config": "5.1.0"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "serve": "vite",
+    "build": "vue-tsc --noEmit -p tsconfig.typecheck.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.typecheck.json"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@sentry/vue": "^10.54.0",
+    "axios": "^1.9.0",
+    "chart.js": "^4.4.9",
+    "echarts": "^5.6.0",
+    "element-plus": "^2.10.1",
+    "vue": "^3.2.13",
+    "vue-chartjs": "^5.3.2",
+    "vue-router": "^4.0.3",
+    "vuex": "^4.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "sass": "^1.32.7",
+    "tailwindcss": "^3.4.4",
+    "typescript": "~5.4.5",
+    "vite": "^6.0.3",
+    "vue-tsc": "^2.0.29"
+  }
+}

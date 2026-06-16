@@ -1,0 +1,131 @@
+// =============================================================================
+// Opus Sales — schemat bazy danych (PostgreSQL + Prisma)
+// Wprowadza wielodostępność (multi-tenancy): Organization → User → pliki/joby.
+// Każdy rekord danych jest powiązany z organizationId i filtrowany po nim.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Firma / najemca (tenant). Granica izolacji danych — nic nie przecieka między organizacjami.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  /// Konfiguracja per-organizacja (zastępuje zaszyty na sztywno Olsztyn):
+  /// baza tras, region, domyślna waluta itp. Trzymane jako JSON dla elastyczności.
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  files     UploadedFile[]
+  jobs      AnalysisJob[]
+
+  @@map("organizations")
+}
+
+enum UserRole {
+  OWNER  // założyciel organizacji — pełne uprawnienia, zarządzanie użytkownikami
+  ADMIN  // administrator — zarządzanie danymi i ustawieniami
+  MEMBER // zwykły użytkownik — praca z analizami
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  /// Hash hasła (bcrypt). NIGDY nie przechowujemy hasła jawnie.
+  passwordHash   String
+  name           String?
+  role           UserRole     @default(MEMBER)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Soft-delete + blokada logowania bez kasowania historii.
+  isActive       Boolean      @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  refreshTokens  RefreshToken[]
+  uploadedFiles  UploadedFile[]
+  jobs           AnalysisJob[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+/// Refresh tokeny dla rotacji JWT (krótki access token + długi refresh w bazie).
+/// Pozwala unieważnić sesję (logout / kompromitacja) bez czekania na wygaśnięcie.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  /// Przechowujemy HASH tokenu, nie sam token (jak hasła).
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Metadane wgranego pliku. Sam plik leży w storage pod kluczem `org_{id}/{storageKey}`.
+/// To zastępuje "luźne pliki w uploads/ rozróżniane po nazwie".
+model UploadedFile {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedById   String
+  uploadedBy     User         @relation(fields: [uploadedById], references: [id])
+
+  /// Klucz w storage (bez prefiksu organizacji — prefiks dokłada warstwa storage).
+  storageKey     String
+  originalName   String
+  sizeBytes      Int
+  createdAt      DateTime     @default(now())
+
+  jobs           AnalysisJob[]
+
+  @@index([organizationId])
+  @@unique([organizationId, storageKey])
+  @@map("uploaded_files")
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// Job analizy AI — przeniesiony z pamięci (agentJobStore) do trwałego magazynu.
+/// Przeżywa restart i działa przy wielu replikach (źródło prawdy w bazie, cache w Redis).
+model AnalysisJob {
+  id             String       @id @default(cuid())
+  /// Identyfikator sesji zwracany klientowi do pollingu (mapuje na rekord).
+  sessionId      String       @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  fileId         String
+  file           UploadedFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  status         JobStatus    @default(PENDING)
+  currentStep    String?
+  /// Wynik (AiInsightsResponse) jako JSON; null dopóki nie skończony.
+  result         Json?
+  errorMessage   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId, status])
+  @@map("analysis_jobs")
+}

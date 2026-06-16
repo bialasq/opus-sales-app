@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.env
+.env.*
+*.log
+logs
+uploads
+coverage
+.vscode
+.idea
+tests
+**/*.test.ts
+vitest.config.ts
+*.msi
+dane_testowe.xlsx
