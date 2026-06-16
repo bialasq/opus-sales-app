@@ -52,6 +52,8 @@ function fromDbStatus(status: JobStatus): AgentJobStatus {
       return "done";
     case "FAILED":
       return "error";
+    default:
+      return "error";
   }
 }
 

@@ -6,6 +6,7 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY frontend/ ./
 COPY backend/shared /build/backend/shared
+COPY backend/types /build/backend/types
 
 RUN npm run build
 
