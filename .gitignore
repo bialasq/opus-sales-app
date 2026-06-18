@@ -4,6 +4,7 @@ node_modules/
 
 # Build
 frontend/dist/
+backend/dist/
 *.log
 npm-debug.log*
 
@@ -18,10 +19,10 @@ frontend/.env.local
 backend/uploads/*
 !backend/uploads/.gitkeep
 
-# Wygenerowane lokalnie (npm run generate-test-data)
+# Wygenerowane lokalnie
 backend/dane_testowe.xlsx
 
-# Instalatory — nie do repo
+# Instalatory
 *.msi
 
 # OS / IDE
@@ -31,7 +32,7 @@ Thumbs.db
 .vscode/
 *.sw?
 
-# Artefakty / cache
+# Cache
 frontend/node_modules/.cache/
 
 # Trace logi agentów AI (lokalnie)
