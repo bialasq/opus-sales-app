@@ -35,7 +35,7 @@ npm run dev
 
 Then in the browser: **upload an `.xlsx`** to run analytics. The backend stores files under `backend/uploads/` (ignored by git so user spreadsheets are not pushed).
 
-**Important:** the frontend talks to the API via **`/api`** and the proxy in `vue.config.js` (default target `http://127.0.0.1:3000`). If the backend is down you will see network errors — start `backend` first.
+**Important:** the frontend talks to the API via **`/api`** and the Vite dev proxy in **`frontend/vite.config.ts`** (default target `http://127.0.0.1:3000`, override with `VITE_PROXY_TARGET`). If the backend is down you will see network errors — start `backend` first.
 
 ### Environment variables (AI and ports)
 
@@ -47,7 +47,7 @@ Template: **`backend/.env.example`**. Minimum for AI:
 
 Without keys, the app still runs — some modules use **heuristics / fallback** instead of an LLM.
 
-**API auth (production):** set `API_KEY` in `backend/.env` and the same value as `VUE_APP_API_KEY` in `frontend/.env.local` (header `x-api-key` on `/api/*`). See `backend/.env.example`.
+**API auth:** use **JWT** (register/login in the UI). Legacy `x-api-key` is optional — set `LEGACY_API_KEY_ENABLED=true` in `backend/.env` only for backward-compatible dev; production example uses `false`. See `backend/.env.example` and `frontend/.env.example`.
 
 Frontend: see **`frontend/.env.example`** (proxy vs full API URL).
 
@@ -105,7 +105,7 @@ Ports and proxy are documented in `docker-compose.yml` and `frontend/.env.exampl
 | `backend/` | `npm run gc:logs` | Delete trace JSON older than `LOG_RETENTION_DAYS` (default 30) |
 | `backend/` | `npm run test:agent` | Agent unit tests (if configured) |
 | `frontend/` | `npm run dev` | Dev server + HMR |
-| `frontend/` | `npm run build` | Production build (typecheck + webpack) |
+| `frontend/` | `npm run build` | Production build (typecheck + Vite) |
 | `frontend/` | `npm run typecheck` | TS + `@shared` alias |
 
 ### Repo layout
@@ -119,7 +119,7 @@ frontend/         Vue 3, views, ECharts panels
 docker-compose.yml
 ```
 
-Shared types: **`backend/shared/api-types.ts`** — wired in `vue.config.js` as `@shared`.
+Shared types: **`backend/shared/api-types.ts`** — wired in `frontend/vite.config.ts` as `@shared`.
 
 ### Sales Route Optimizer (logistics)
 
@@ -215,12 +215,12 @@ On stop, **`buildPartialAgenticResult`** returns partial suggestions + `meta.par
 
 ### Troubleshooting
 
-1. **404 on `/api/...`** — ensure axios base URL ends with `/api` or set `VUE_APP_API_URL` correctly.
+1. **404 on `/api/...`** — ensure axios base URL ends with `/api` or set `VITE_API_URL` correctly.
 2. **`ECONNREFUSED`** — backend not running or wrong proxy port.
 3. **Empty dashboard** — column names may not match the Excel parser (e.g. missing `Sprzedaż` / `Wizyty` sheets).
 4. **AI shows rules / fallback** — missing or invalid API key / model; check backend logs and `.env`.
 5. **400 on upload / analysis — Excel validation** — message names sheet and row; fix columns (`Nazwa_Produktu`, `Wartość`, `Województwo`, `Opiekun`, …) or regenerate test data with `npm run generate-test-data`.
-6. **401 on `/api/*`** — set matching `API_KEY` (backend) and `VUE_APP_API_KEY` (frontend).
+6. **401 on `/api/*`** — log in again (JWT expired) or check `JWT_SECRET` / `LEGACY_API_KEY_ENABLED` if using legacy `x-api-key`.
 
 ### First push to GitHub
 
@@ -265,7 +265,7 @@ npm run dev
 
 W przeglądarce **wgraj plik `.xlsx`**. Backend zapisuje pliki w `backend/uploads/` (folder w `.gitignore`).
 
-**Ważne:** frontend łączy się z API przez **`/api`** i proxy z `vue.config.js` (domyślnie `http://127.0.0.1:3000`). Bez backendu pojawią się błędy sieciowe — najpierw uruchom `backend`.
+**Ważne:** frontend łączy się z API przez **`/api`** i proxy Vite z **`frontend/vite.config.ts`** (domyślnie `http://127.0.0.1:3000`, nadpisz `VITE_PROXY_TARGET`). Bez backendu pojawią się błędy sieciowe — najpierw uruchom `backend`.
 
 ### Zmienne środowiskowe
 
@@ -273,7 +273,7 @@ Szablon: **`backend/.env.example`**. Klucze **tylko** w lokalnym `backend/.env` 
 
 Frontend: **`frontend/.env.example`**.
 
-**Auth API:** `API_KEY` w `backend/.env` oraz `VUE_APP_API_KEY` we frontendzie (nagłówek `x-api-key`).
+**Auth API:** **JWT** (logowanie w UI). Legacy `x-api-key` opcjonalnie — `LEGACY_API_KEY_ENABLED=true` tylko w dev; w `.env.example` produkcyjnie `false`.
 
 ### Walidacja Excela
 
@@ -409,7 +409,7 @@ Bloki person w **`backend/prompts/agent_v2.ts`**. Do promptu Stratega doklejany 
 3. **Pusty dashboard** — inne nazwy kolumn / arkuszy w Excelu.
 4. **Tryb regułowy AI** — brak lub błędny klucz API / model w `.env`.
 5. **400 — walidacja Excela** — komunikat wskazuje arkusz i wiersz; popraw kolumny lub `npm run generate-test-data`.
-6. **401 na `/api/*`** — ustaw `API_KEY` i `VUE_APP_API_KEY`.
+6. **401 na `/api/*`** — zaloguj się ponownie (JWT wygasł) lub sprawdź `JWT_SECRET` / `LEGACY_API_KEY_ENABLED` przy legacy `x-api-key`.
 
 ### Pierwszy push na GitHub
 

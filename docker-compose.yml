@@ -26,8 +26,9 @@ services:
       - frontend_node_modules:/app/node_modules
     environment:
       NODE_ENV: development
-      VUE_APP_API_URL: ""
-      VUE_APP_PROXY_TARGET: http://backend:3000
+      # Puste = względne /api w przeglądarce; proxy Vite kieruje na backend
+      VITE_API_URL: ""
+      VITE_PROXY_TARGET: http://backend:3000
     depends_on:
       - backend
 

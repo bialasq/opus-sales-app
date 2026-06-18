@@ -214,4 +214,47 @@ describe("Multi-tenant isolation (integration)", () => {
 
     expect([401, 403]).toContain(res.status);
   });
+
+  it("izolacja job pollingu AI — org B nie może odczytać sessionId org A", async (ctx) => {
+    if (!suiteReady) ctx.skip();
+
+    const runRes = await request(app)
+      .post("/api/ai/insights/run")
+      .set("Authorization", `Bearer ${orgA.token}`)
+      .send({ filename: storageKey });
+
+    expect(runRes.status).toBe(202);
+    expect(runRes.body.sessionId).toBeTruthy();
+    const sessionId = runRes.body.sessionId as string;
+
+    let ownerPoll = await request(app)
+      .get(`/api/ai/insights/job/${sessionId}`)
+      .set("Authorization", `Bearer ${orgA.token}`);
+
+    for (let attempt = 0; attempt < 30 && ownerPoll.status === 404; attempt++) {
+      await new Promise((r) => setTimeout(r, 100));
+      ownerPoll = await request(app)
+        .get(`/api/ai/insights/job/${sessionId}`)
+        .set("Authorization", `Bearer ${orgA.token}`);
+    }
+
+    expect(ownerPoll.status).toBe(200);
+    expect(ownerPoll.body.sessionId).toBe(sessionId);
+    expect(["running", "done", "error"]).toContain(ownerPoll.body.status);
+
+    const crossOrgPoll = await request(app)
+      .get(`/api/ai/insights/job/${sessionId}`)
+      .set("Authorization", `Bearer ${orgB.token}`);
+
+    expect(crossOrgPoll.status).toBe(404);
+    expect(crossOrgPoll.body.error).toMatch(
+      /Nie znaleziono zadania agenta/i
+    );
+
+    const unauthPoll = await request(app).get(
+      `/api/ai/insights/job/${sessionId}`
+    );
+
+    expect([401, 403]).toContain(unauthPoll.status);
+  }, 30_000);
 });

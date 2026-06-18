@@ -1,16 +1,18 @@
 import type { Application } from "express";
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 function authHeaders(): { "x-api-key": string } {
   return { "x-api-key": process.env.API_KEY! };
 }
 
+type AuthRole = "OWNER" | "ADMIN" | "MEMBER";
+
 /** Bearer z organizationId — wymagany przez requireOrg na /api/upload. */
-function bearerHeaders(): { Authorization: string } {
+function bearerHeaders(role: AuthRole = "MEMBER"): { Authorization: string } {
   const token = jwt.sign(
-    { sub: "test-user-id", org: "org_test_upload", role: "MEMBER" },
+    { sub: "test-user-id", org: "org_test_upload", role },
     process.env.JWT_SECRET!,
     { expiresIn: "15m" }
   );
@@ -94,6 +96,44 @@ describe("HTTP integration (createApp)", () => {
     });
   });
 
+  describe("Admin and ops routes", () => {
+    it("GET /api/admin/budget without auth → 401", async () => {
+      const res = await request(app).get("/api/admin/budget");
+      expect(res.status).toBe(401);
+    });
+
+    it("GET /api/admin/budget with MEMBER → 403", async () => {
+      const res = await request(app)
+        .get("/api/admin/budget")
+        .set(bearerHeaders("MEMBER"));
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/uprawnień/i);
+    });
+
+    it("GET /api/admin/budget with OWNER → 200", async () => {
+      const res = await request(app)
+        .get("/api/admin/budget")
+        .set(bearerHeaders("OWNER"));
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("currentSpendUsd");
+    });
+
+    it("POST /api/ai/cache/clear with MEMBER → 403", async () => {
+      const res = await request(app)
+        .post("/api/ai/cache/clear")
+        .set(bearerHeaders("MEMBER"));
+      expect(res.status).toBe(403);
+    });
+
+    it("POST /api/ai/cache/clear with OWNER → 200", async () => {
+      const res = await request(app)
+        .post("/api/ai/cache/clear")
+        .set(bearerHeaders("OWNER"));
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+    });
+  });
+
   describe("Rate limiting", () => {
     it("returns 429 after exceeding limit on /api/ai/*", async () => {
       const requests = Array.from({ length: 25 }, () =>
@@ -162,6 +202,41 @@ describe("HTTP integration (createApp)", () => {
       const body = JSON.stringify(res.body);
       expect(body).not.toContain("at ");
       expect(body).not.toContain("node_modules");
+    });
+  });
+
+  describe("Metrics token", () => {
+    it("GET /metrics without token when METRICS_TOKEN is set → 401", async () => {
+      const prev = process.env.METRICS_TOKEN;
+      process.env.METRICS_TOKEN = "test-metrics-secret-token-32chars";
+      vi.resetModules();
+      const { createApp, setAppReadyForTests } = await import("../server");
+      setAppReadyForTests(true);
+      const metricsApp = createApp();
+
+      const res = await request(metricsApp).get("/metrics");
+      expect(res.status).toBe(401);
+
+      process.env.METRICS_TOKEN = prev;
+      vi.resetModules();
+    });
+
+    it("GET /metrics with valid Bearer when METRICS_TOKEN is set → 200", async () => {
+      const prev = process.env.METRICS_TOKEN;
+      process.env.METRICS_TOKEN = "test-metrics-secret-token-32chars";
+      vi.resetModules();
+      const { createApp, setAppReadyForTests } = await import("../server");
+      setAppReadyForTests(true);
+      const metricsApp = createApp();
+
+      const res = await request(metricsApp)
+        .get("/metrics")
+        .set("Authorization", "Bearer test-metrics-secret-token-32chars");
+      expect(res.status).toBe(200);
+      expect(res.text).toMatch(/process_cpu/);
+
+      process.env.METRICS_TOKEN = prev;
+      vi.resetModules();
     });
   });
 });

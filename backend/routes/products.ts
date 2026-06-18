@@ -40,6 +40,8 @@ router.post(
         })
       );
 
+      products.sort((a, b) => b.totalValue - a.totalValue);
+
       const seasonalTrends: ProductAnalysisResponse["seasonalTrends"] = {};
       Object.entries(productAnalysis).forEach(([, product]) => {
         if (product.seasonalTrends) {
@@ -48,7 +50,7 @@ router.post(
       });
 
       const out: ProductAnalysisResponse = {
-        products: products.slice(0, 10),
+        products,
         seasonalTrends,
         totalProducts: Object.keys(productAnalysis).length,
         categories: [...new Set(products.map((p) => p.category))],

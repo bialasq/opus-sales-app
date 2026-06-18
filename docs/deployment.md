@@ -60,18 +60,12 @@ location / {
 }
 ```
 
-Protect `/metrics` (Prometheus) at the network layer — it is not behind API key auth.
-
-## Backups
-
-- **Uploads:** S3 versioning, or rsync `uploads/` / MinIO bucket
-- **Redis:** RDB snapshots (Redis service volume `redis_data`)
-- **Traces:** `logs/traces/` — run `npm run gc:logs` (default 30 days retention)
+Protect `/metrics` (Prometheus) with `METRICS_TOKEN` in backend `.env` (Bearer or `?token=`). See `backend/.env.example`.
 
 ## Monitoring
 
-- Prometheus scrape: `http://backend:3000/metrics`
-- Sentry: set `SENTRY_DSN` (backend) and `VUE_APP_SENTRY_DSN` / container `SENTRY_DSN`
+- Prometheus scrape: `http://backend:3000/metrics` (with `Authorization: Bearer <METRICS_TOKEN>` when configured)
+- Sentry: set `SENTRY_DSN` (backend) and `VITE_SENTRY_DSN` in frontend build / container `SENTRY_DSN`
 - Health: `/api/healthz`, readiness: `/api/readyz`
 
 ## Scaling

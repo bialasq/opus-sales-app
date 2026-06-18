@@ -5,52 +5,72 @@
       <el-skeleton animated :rows="6" />
     </div>
     <div v-else class="space-y-6 sm:space-y-8">
-    <section v-if="productsTable.length" aria-label="Tabela produktów">
+    <section v-if="allProducts.length" aria-label="Tabela produktów">
       <div class="dashboard-card p-0 sm:p-0">
         <div class="dashboard-card-header px-4 pt-4 sm:px-5 sm:pt-5">
-          <div>
+          <div class="min-w-0 flex-1">
             <h2 class="text-base font-semibold text-slate-900 sm:text-lg">
               Produkty z pliku
             </h2>
             <p class="mt-0.5 text-xs text-slate-500 sm:text-sm">
               Przewiń poziomo na małym ekranie — kolumny pozostają czytelne
             </p>
+            <p class="mt-1 text-xs text-slate-600">
+              Wyświetlono {{ displayedCount }} z {{ totalProductsCount }} produktów
+              <span v-if="displayLimit === 'all' && totalProductsCount > 100" class="text-amber-600">
+                — duża lista może spowolnić przeglądarkę
+              </span>
+            </p>
           </div>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="do"
-            start-placeholder="Od"
-            end-placeholder="Do"
-            format="DD.MM.YYYY"
-            value-format="YYYY-MM-DD"
-            class="!w-full min-w-0 sm:!max-w-xs"
-            @change="updateAnalysis"
-          />
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <el-select
+              v-model="displayLimit"
+              placeholder="Limit"
+              class="!w-full sm:!w-36"
+              aria-label="Limit wyświetlania produktów"
+            >
+              <el-option label="10 produktów" :value="10" />
+              <el-option label="50 produktów" :value="50" />
+              <el-option label="100 produktów" :value="100" />
+              <el-option label="Wszystkie" value="all" />
+            </el-select>
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              range-separator="do"
+              start-placeholder="Od"
+              end-placeholder="Do"
+              format="DD.MM.YYYY"
+              value-format="YYYY-MM-DD"
+              class="!w-full min-w-0 sm:!max-w-xs"
+              @change="updateAnalysis"
+            />
+          </div>
         </div>
         <div class="sales-table-wrap border-t-0 sm:border-t">
           <el-table
-            :data="productsTable"
+            :data="displayedProducts"
             stripe
             class="min-w-[640px]"
             :default-sort="{ prop: 'totalValue', order: 'descending' }"
+            @sort-change="onSortChange"
           >
             <el-table-column prop="id" label="ID" min-width="88" fixed />
             <el-table-column prop="name" label="Produkt" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="category" label="Kategoria" min-width="120" />
+            <el-table-column prop="category" label="Kategoria" min-width="120" sortable="custom" />
             <el-table-column
               prop="rotationRate"
               label="Rotacja"
               min-width="100"
-              sortable
+              sortable="custom"
               :formatter="(_, __, val) => formatPct(val)"
             />
-            <el-table-column prop="totalQuantity" label="Ilość" min-width="88" sortable align="right" />
+            <el-table-column prop="totalQuantity" label="Ilość" min-width="88" sortable="custom" align="right" />
             <el-table-column
               prop="totalValue"
               label="Wartość"
               min-width="120"
-              sortable
+              sortable="custom"
               align="right"
               :formatter="(_, __, val) => formatCurrency(val)"
             />
@@ -77,7 +97,7 @@
             </p>
           </div>
           <el-date-picker
-            v-if="!productsTable.length"
+            v-if="!allProducts.length"
             v-model="dateRange"
             type="daterange"
             range-separator="do"
@@ -164,7 +184,7 @@
 </template>
 
 <script>
-import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { useStore } from "vuex";
 import * as echarts from "echarts";
 import api from "@/services/api";
@@ -177,7 +197,10 @@ export default {
     const rotationChart = ref(null);
     const seasonalChart = ref(null);
     const dateRange = ref([]);
-    const productsTable = ref([]);
+    const allProducts = ref([]);
+    const totalProductsCount = ref(0);
+    const displayLimit = ref(10);
+    const sortState = ref({ prop: "totalValue", order: "descending" });
     const promotionSuggestions = ref([
       {
         product: "Produkt A",
@@ -210,6 +233,38 @@ export default {
     const formatPct = (n) =>
       `${((Number(n) || 0) * 100).toFixed(1)}%`;
 
+    const compareProducts = (a, b, prop, order) => {
+      const av = a[prop];
+      const bv = b[prop];
+      let cmp = 0;
+      if (prop === "category") {
+        cmp = String(av ?? "").localeCompare(String(bv ?? ""), "pl");
+      } else {
+        cmp = (Number(av) || 0) - (Number(bv) || 0);
+      }
+      return order === "ascending" ? cmp : -cmp;
+    };
+
+    const displayedProducts = computed(() => {
+      const rows = [...allProducts.value];
+      const { prop, order } = sortState.value;
+      if (prop && order) {
+        rows.sort((a, b) => compareProducts(a, b, prop, order));
+      }
+      const limit =
+        displayLimit.value === "all" ? rows.length : Number(displayLimit.value);
+      return rows.slice(0, limit);
+    });
+
+    const displayedCount = computed(() => displayedProducts.value.length);
+
+    const onSortChange = ({ prop, order }) => {
+      sortState.value = {
+        prop: prop || "totalValue",
+        order: order || null,
+      };
+    };
+
     const loadProductAnalysis = async () => {
       const filename = store.state.currentFile;
       if (!filename) return;
@@ -217,9 +272,15 @@ export default {
       analysisLoading.value = true;
       try {
         const response = await api.post("/products/analysis", { filename });
-        productsTable.value = response.data.products || [];
+        allProducts.value = response.data.products || [];
+        totalProductsCount.value =
+          response.data.totalProducts ?? allProducts.value.length;
+        sortState.value = { prop: "totalValue", order: "descending" };
+        const chartProducts = [...allProducts.value]
+          .sort((a, b) => b.totalValue - a.totalValue)
+          .slice(0, 10);
         await nextTick();
-        renderRotationChart(response.data.products || []);
+        renderRotationChart(chartProducts);
         renderSeasonalChart(response.data.seasonalTrends || {});
       } catch (error) {
         ElMessage.error(
@@ -370,7 +431,12 @@ export default {
       rotationChart,
       seasonalChart,
       dateRange,
-      productsTable,
+      allProducts,
+      totalProductsCount,
+      displayLimit,
+      displayedProducts,
+      displayedCount,
+      onSortChange,
       promotionSuggestions,
       categoryAnalysis,
       updateAnalysis,

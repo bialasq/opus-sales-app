@@ -15,7 +15,10 @@ import { randomUUID } from "crypto";
 import express, {
   type Application,
   type ErrorRequestHandler,
+  type NextFunction,
+  type Request,
   type RequestHandler,
+  type Response,
 } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -29,6 +32,7 @@ import aiRoutes from "./routes/ai";
 import adminRoutes from "./routes/admin";
 import authRoutes from "./routes/auth";
 import { requireOrg, sessionAuth } from "./middleware/session";
+import { constantTimeEqual } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { requestIdMiddleware } from "./middleware/requestId";
 import { rootLogger } from "./services/appLogger";
@@ -42,6 +46,45 @@ export let isAppReady = false;
 
 export function setAppReadyForTests(ready = true): void {
   isAppReady = ready;
+}
+
+let warnedUnsecuredMetrics = false;
+
+function extractMetricsToken(req: Request): string | null {
+  const authHeader = req.header("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+  const queryToken = req.query.token;
+  if (typeof queryToken === "string" && queryToken.trim()) {
+    return queryToken.trim();
+  }
+  return null;
+}
+
+function metricsAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const configured = process.env.METRICS_TOKEN?.trim() || "";
+  if (!configured) {
+    if (!warnedUnsecuredMetrics) {
+      rootLogger.warn(
+        "metrics endpoint niezabezpieczony (ustaw METRICS_TOKEN)"
+      );
+      warnedUnsecuredMetrics = true;
+    }
+    next();
+    return;
+  }
+  const provided = extractMetricsToken(req);
+  if (!provided || !constantTimeEqual(provided, configured)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
 }
 
 export async function ensureRuntimeDirs(): Promise<void> {
@@ -75,7 +118,7 @@ export function createApp(): Application {
     next();
   });
 
-  app.get("/metrics", async (_req, res) => {
+  app.get("/metrics", metricsAuth, async (_req, res) => {
     refreshBudgetGauge();
     res.set("Content-Type", registry.contentType);
     res.send(await registry.metrics());

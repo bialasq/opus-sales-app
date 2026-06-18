@@ -15,10 +15,14 @@ import {
 
 export type LlmProviderActive = "openai" | "anthropic";
 
-const AI_REQUEST_TIMEOUT_MS = parseInt(
-  process.env.AI_REQUEST_TIMEOUT_MS || "60000",
-  10
-);
+const DEFAULT_AI_REQUEST_TIMEOUT_MS = 180_000;
+
+function getAiRequestTimeoutMs(): number {
+  const parsed = Number(process.env.AI_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_AI_REQUEST_TIMEOUT_MS;
+}
 
 export type LlmConfigStatus = {
   available: boolean;
@@ -99,8 +103,8 @@ export type InvokeLlmJsonOptions = {
 };
 
 function resolveTimeoutMs(timeoutMs?: number): number {
-  const ms = timeoutMs ?? AI_REQUEST_TIMEOUT_MS;
-  return Number.isFinite(ms) && ms > 0 ? ms : AI_REQUEST_TIMEOUT_MS;
+  const ms = timeoutMs ?? getAiRequestTimeoutMs();
+  return Number.isFinite(ms) && ms > 0 ? ms : getAiRequestTimeoutMs();
 }
 
 export class LlmBudgetExceededError extends Error {

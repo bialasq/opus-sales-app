@@ -694,6 +694,8 @@ export async function getAiInsightsJobStatus(sessionId: string) {
 
     error: job.error,
 
+    organizationId: job.organizationId,
+
   };
 
 }

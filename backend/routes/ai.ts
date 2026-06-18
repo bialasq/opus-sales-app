@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from "express";
 
 import { validateBody, validateParams, validateQuery } from "../middleware/validateRequest";
-import { requireOrg } from "../middleware/session";
+import { requireOrg, requireRole } from "../middleware/session";
 import { FileNotOwnedError, assertFileOwnership } from "../services/fileOwnership";
 
 import {
@@ -145,6 +145,8 @@ router.post(
 router.get(
   "/insights/job/:sessionId",
 
+  requireOrg,
+
   validateParams(aiInsightsJobParamsSchema),
 
   async (req: Request, res: Response) => {
@@ -153,15 +155,21 @@ router.get(
 
     const job = await getAiInsightsJobStatus(sessionId);
 
-    if (!job) {
+    const notFound = {
+      error: "Nie znaleziono zadania agenta (wygasło lub błędny sessionId)",
+    };
 
-      res.status(404).json({ error: "Nie znaleziono zadania agenta (wygasło lub błędny sessionId)" });
+    if (!job || job.organizationId !== req.auth!.organizationId) {
+
+      res.status(404).json(notFound);
 
       return;
 
     }
 
-    res.json(job);
+    const { organizationId: _org, ...clientJob } = job;
+
+    res.json(clientJob);
 
   }
 
@@ -201,7 +209,11 @@ router.post(
 
 
 
-router.get("/performance", async (_req: Request, res: Response) => {
+router.get(
+  "/performance",
+  requireOrg,
+  requireRole("OWNER", "ADMIN"),
+  async (_req: Request, res: Response) => {
 
   try {
 
@@ -217,7 +229,8 @@ router.get("/performance", async (_req: Request, res: Response) => {
 
   }
 
-});
+  }
+);
 
 
 
@@ -264,7 +277,11 @@ router.post(
   }
 );
 
-router.post("/cache/clear", async (_req: Request, res: Response) => {
+router.post(
+  "/cache/clear",
+  requireOrg,
+  requireRole("OWNER", "ADMIN"),
+  async (_req: Request, res: Response) => {
 
   try {
 
@@ -282,7 +299,8 @@ router.post("/cache/clear", async (_req: Request, res: Response) => {
 
   }
 
-});
+  }
+);
 
 
 

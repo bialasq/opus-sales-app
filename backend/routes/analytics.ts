@@ -320,6 +320,7 @@ router.post(
 
 router.post(
   "/ai-insights",
+  requireOrg,
   validateBody(aiInsightsBodySchema),
   async (req: Request, res: Response) => {
     try {
@@ -331,6 +332,7 @@ router.post(
 
       const result = await runAgentInsight(agentType, data, {
         filename: filename?.trim() || undefined,
+        organizationId: req.auth!.organizationId,
       });
       res.json(result);
     } catch (error) {
