@@ -1,0 +1,13 @@
+# Wymuś LF dla skryptów powłoki — inaczej checkout na Windows (CRLF) psuje
+# shebang w kontenerach Linux ("bad interpreter: /bin/sh^M").
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Normalizacja końców linii dla kodu źródłowego.
+*.ts text
+*.js text
+*.vue text
+*.json text
+*.yml text
+*.yaml text
+Dockerfile text
