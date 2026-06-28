@@ -1,9 +1,10 @@
 name: Docker Build
 
+# Walidacja buildów obrazów (PR) + publikacja branch/sha na push do main.
+# Wydania wersjonowane (tagi v*) obsługuje osobny workflow: deploy.yml.
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
 
