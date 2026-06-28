@@ -58,10 +58,10 @@
             </div>
 
             <div class="recommendation-meta">
-              <el-tag size="small" v-if="rec.category">{{
+              <el-tag v-if="rec.category" size="small">{{
                 rec.category
               }}</el-tag>
-              <el-tag size="small" type="info" v-if="rec.impact">
+              <el-tag v-if="rec.impact" size="small" type="info">
                 Wpływ: {{ rec.impact }}
               </el-tag>
             </div>
@@ -73,7 +73,7 @@
     <el-divider />
 
     <div class="ai-actions">
-      <el-button @click="refreshRecommendations" :loading="loading">
+      <el-button :loading="loading" @click="refreshRecommendations">
         <el-icon><Refresh /></el-icon>
         Odśwież rekomendacje
       </el-button>

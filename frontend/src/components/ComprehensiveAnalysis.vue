@@ -30,9 +30,9 @@
 
             <el-button
               type="primary"
-              @click="runAnalysis"
               :loading="loading"
               :disabled="!hasFile"
+              @click="runAnalysis"
             >
               <el-icon><DataAnalysis /></el-icon>
               Analizuj dane
@@ -67,7 +67,7 @@
           :sub-title="`Plik: ${currentFileName}`"
         >
           <template #extra>
-            <el-button type="primary" @click="runAnalysis" :loading="loading">
+            <el-button type="primary" :loading="loading" @click="runAnalysis">
               Rozpocznij analizę
             </el-button>
           <el-upload
@@ -86,7 +86,7 @@
       </div>
 
       <div v-else>
-        <el-row :gutter="20" class="summary-cards" v-if="analysisData.summary">
+        <el-row v-if="analysisData.summary" :gutter="20" class="summary-cards">
           <el-col :span="6">
             <div class="summary-card">
               <div class="summary-label">Przychód</div>
