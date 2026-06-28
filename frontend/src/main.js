@@ -1,7 +1,7 @@
 // frontend/src/main.js
 import { createApp } from "vue";
 import * as Sentry from "@sentry/vue";
-import { isLoggedIn } from "./services/auth";
+import { initSession } from "./services/auth";
 import App from "./App.vue";
 import router from "./router";
 import store from "./store";
@@ -49,10 +49,21 @@ window.addEventListener("opus:logout", () => {
   router.push({ name: "Auth" });
 });
 
-if (isLoggedIn()) {
-  store.dispatch("loadMe").catch(() => {});
-}
-
 app.config.globalProperties.$message = ElMessage;
 
-app.mount("#app");
+// Odtwarzamy sesję z httpOnly refresh-cookie ZANIM zamontujemy aplikację,
+// inaczej po przeładowaniu strony (access token tylko w pamięci) router
+// przekierowałby zalogowanego użytkownika na ekran logowania.
+async function bootstrap() {
+  try {
+    const restored = await initSession();
+    if (restored) {
+      await store.dispatch("loadMe").catch(() => {});
+    }
+  } catch {
+    /* brak ważnej sesji — wejdziemy jako niezalogowani */
+  }
+  app.mount("#app");
+}
+
+bootstrap();

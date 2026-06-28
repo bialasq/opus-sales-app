@@ -1,8 +1,15 @@
-import axios from "axios";
 import api from "./api";
+import axios from "axios";
 
-const ACCESS_KEY = "opus_access";
-const REFRESH_KEY = "opus_refresh";
+/**
+ * Model sesji (po hardeningu):
+ *  - ACCESS token: krótki (15 min), trzymany WYŁĄCZNIE w pamięci JS (nie w localStorage)
+ *    — znika po przeładowaniu karty i jest odtwarzany z refresh-cookie (patrz initSession()).
+ *  - REFRESH token: httpOnly + Secure cookie ustawiany przez API — niedostępny dla JS,
+ *    więc XSS nie może go wykraść. Wysyłany automatycznie przez przeglądarkę na /auth/refresh.
+ *
+ * Dlatego ten moduł nie dotyka już localStorage dla tokenów.
+ */
 
 type RuntimeAppConfig = {
   API_URL?: string;
@@ -43,16 +50,15 @@ function resolveApiRoot(): string {
   return base.replace(/\/$/, "");
 }
 
-/** Bez interceptorów — unikamy pętli przy /auth/refresh. */
+/**
+ * Klient bez interceptorów (unikamy pętli przy /auth/refresh).
+ * withCredentials=true → przeglądarka dołącza httpOnly refresh-cookie.
+ */
 const bareClient = axios.create({
   baseURL: resolveApiRoot(),
   headers: { "Content-Type": "application/json" },
+  withCredentials: true,
 });
-
-export type AuthTokens = {
-  accessToken: string;
-  refreshToken: string;
-};
 
 export type AuthMe = {
   userId: string;
@@ -65,28 +71,23 @@ export type RegisterResult = {
   organizationId: string;
 };
 
+// Access token żyje tylko w pamięci modułu (zerowany przy przeładowaniu strony).
+let accessToken: string | null = null;
+
 export function getAccessToken(): string | null {
-  if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(ACCESS_KEY);
+  return accessToken;
 }
 
-export function getRefreshToken(): string | null {
-  if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(REFRESH_KEY);
-}
-
-export function setTokens(access: string, refresh: string): void {
-  localStorage.setItem(ACCESS_KEY, access);
-  localStorage.setItem(REFRESH_KEY, refresh);
+function setAccessToken(token: string): void {
+  accessToken = token;
 }
 
 export function clearTokens(): void {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  accessToken = null;
 }
 
 export function isLoggedIn(): boolean {
-  return !!getAccessToken();
+  return !!accessToken;
 }
 
 export async function register(
@@ -104,24 +105,19 @@ export async function register(
   return data;
 }
 
-export async function login(
-  email: string,
-  password: string
-): Promise<AuthTokens> {
-  const { data } = await bareClient.post<AuthTokens>("/auth/login", {
-    email,
-    password,
-  });
-  setTokens(data.accessToken, data.refreshToken);
-  return data;
+export async function login(email: string, password: string): Promise<void> {
+  // Serwer ustawia refresh-cookie i zwraca tylko accessToken.
+  const { data } = await bareClient.post<{ accessToken: string }>(
+    "/auth/login",
+    { email, password }
+  );
+  setAccessToken(data.accessToken);
 }
 
 export async function logout(): Promise<void> {
-  const refreshToken = getRefreshToken();
   try {
-    if (refreshToken) {
-      await bareClient.post("/auth/logout", { refreshToken });
-    }
+    // Refresh-cookie idzie automatycznie; serwer go unieważnia i czyści cookie.
+    await bareClient.post("/auth/logout", {});
   } catch {
     /* best-effort */
   }
@@ -136,17 +132,28 @@ export async function fetchMe(): Promise<AuthMe> {
   return data;
 }
 
-/** Odświeża parę tokenów — używane przez interceptor axios w api.ts. */
+/**
+ * Odświeża access token na podstawie refresh-cookie.
+ * Używane przez interceptor axios (401) oraz przy starcie aplikacji (initSession).
+ */
 export async function tryRefreshAccessToken(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
   try {
-    const { data } = await bareClient.post<AuthTokens>("/auth/refresh", {
-      refreshToken,
-    });
-    setTokens(data.accessToken, data.refreshToken);
+    const { data } = await bareClient.post<{ accessToken: string }>(
+      "/auth/refresh",
+      {}
+    );
+    setAccessToken(data.accessToken);
     return true;
   } catch {
+    clearTokens();
     return false;
   }
+}
+
+/**
+ * Przy starcie aplikacji próbuje odtworzyć sesję z refresh-cookie.
+ * Zwraca true, jeśli użytkownik jest zalogowany (cookie ważne).
+ */
+export async function initSession(): Promise<boolean> {
+  return tryRefreshAccessToken();
 }
