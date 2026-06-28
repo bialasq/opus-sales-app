@@ -1,4 +1,24 @@
 services:
+  # PostgreSQL — źródło prawdy dla kont, organizacji, plików i jobów.
+  # Domyślnie uruchamiany w compose. Aby użyć ZEWNĘTRZNEJ bazy (RDS/Neon/Supabase):
+  #   1. ustaw DATABASE_URL w pliku .env obok tego compose (wskazując zewnętrzny host),
+  #   2. nie startuj tego serwisu: docker compose -f docker-compose.prod.yml up <pozostałe usługi>
+  #      lub usuń `postgres` z `depends_on` backendu.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w .env (nie zostawiaj domyślnego)}
+      POSTGRES_DB: ${POSTGRES_DB:-opus}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opus} -d ${POSTGRES_DB:-opus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -15,7 +35,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: opus-sales-app-backend:latest
+    # Domyślnie obraz lokalny (build na maszynie). CD ustawia BACKEND_IMAGE na obraz z GHCR,
+    # po czym `docker compose pull` pobiera go zamiast budować.
+    image: ${BACKEND_IMAGE:-opus-sales-app-backend:latest}
     restart: unless-stopped
     env_file:
       - ./backend/.env
@@ -24,7 +46,12 @@ services:
       PORT: "3000"
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
       REDIS_URL: redis://redis:6379
+      # DATABASE_URL nadpisuje wartość z backend/.env. Domyślnie wskazuje na
+      # serwis `postgres` w tej sieci. Dla zewnętrznej bazy ustaw DATABASE_URL w .env (obok compose).
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-opus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-opus}?schema=public}
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
@@ -52,8 +79,9 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      # Wymagane sekrety — brak domyślnych. Ustaw w .env obok compose.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Ustaw MINIO_ROOT_USER w .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Ustaw MINIO_ROOT_PASSWORD w .env}
     volumes:
       - minio_data:/data
     ports:
@@ -64,7 +92,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-    image: opus-sales-app-frontend:latest
+    image: ${FRONTEND_IMAGE:-opus-sales-app-frontend:latest}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-8080}:80"
@@ -77,3 +105,4 @@ volumes:
   backend_logs:
   redis_data:
   minio_data:
+  postgres_data:

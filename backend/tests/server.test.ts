@@ -3,6 +3,31 @@ import jwt from "jsonwebtoken";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+// Bez realnej bazy w teście: zdrowotny SELECT 1 (readyz) przechodzi,
+// a metody modeli odrzucają — tak jak przy niedostępnej bazie (pozostałe testy to tolerują).
+vi.mock("../services/prisma", () => {
+  const reject = () => Promise.reject(new Error("DB unavailable (test)"));
+  const model = {
+    findUnique: reject,
+    findFirst: reject,
+    findMany: reject,
+    create: reject,
+    update: reject,
+    updateMany: reject,
+    delete: reject,
+  };
+  return {
+    prisma: {
+      $queryRaw: () => Promise.resolve([{ "?column?": 1 }]),
+      uploadedFile: model,
+      analysisJob: model,
+      user: model,
+      organization: model,
+      refreshToken: model,
+    },
+  };
+});
+
 function authHeaders(): { "x-api-key": string } {
   return { "x-api-key": process.env.API_KEY! };
 }

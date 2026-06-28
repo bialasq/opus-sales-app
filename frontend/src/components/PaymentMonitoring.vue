@@ -63,8 +63,8 @@
                 <el-button
                   type="primary"
                   size="small"
-                  @click="sendSingleReminder(scope.row)"
                   :disabled="scope.row.reminderSent"
+                  @click="sendSingleReminder(scope.row)"
                 >
                   Przypomnij
                 </el-button>

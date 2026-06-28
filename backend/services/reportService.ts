@@ -279,7 +279,7 @@ class ReportService {
     const filename = `raport_${type}_${timestamp}.html`;
     const filepath = path.join(this.reportsDir, filename);
 
-    let html = `
+    const html = `
 <!DOCTYPE html>
 <html lang="pl">
 <head>

@@ -22,7 +22,9 @@ import express, {
 } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
+import rateLimit, { type Options as RateLimitOptions } from "express-rate-limit";
+import { RedisStore } from "rate-limit-redis";
 import multer from "multer";
 import analyticsRoutes from "./routes/analytics";
 import customersRoutes from "./routes/customers";
@@ -38,7 +40,7 @@ import { requestIdMiddleware } from "./middleware/requestId";
 import { rootLogger } from "./services/appLogger";
 import { appRoot } from "./loadEnv";
 import { ValidationError } from "./errors";
-import { closeRedis } from "./services/redis";
+import { closeRedis, getRedis } from "./services/redis";
 import { orgStorage } from "./services/orgStorage";
 import { prisma } from "./services/prisma";
 
@@ -70,6 +72,13 @@ function metricsAuth(
 ): void {
   const configured = process.env.METRICS_TOKEN?.trim() || "";
   if (!configured) {
+    // Produkcja: fail-closed — bez tokenu nie wystawiamy metryk (mogą zawierać wrażliwe etykiety).
+    if (process.env.NODE_ENV === "production") {
+      res.status(503).json({
+        error: "Metrics disabled: ustaw METRICS_TOKEN",
+      });
+      return;
+    }
     if (!warnedUnsecuredMetrics) {
       rootLogger.warn(
         "metrics endpoint niezabezpieczony (ustaw METRICS_TOKEN)"
@@ -97,8 +106,19 @@ export async function ensureRuntimeDirs(): Promise<void> {
 export function createApp(): Application {
   const app: Application = express();
 
-  const FRONTEND_ORIGIN =
-    process.env.FRONTEND_ORIGIN?.replace(/\/$/, "") || "http://localhost:8080";
+  // Za reverse-proxy (TLS) w produkcji: poprawne req.ip dla rate-limitera
+  // oraz akceptacja Secure cookie (X-Forwarded-Proto). 1 = pierwszy zaufany proxy.
+  if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+  }
+
+  // FRONTEND_ORIGIN może być listą po przecinku (np. staging + prod).
+  // Pierwszy origin służy też jako link na stronie informacyjnej "/".
+  const FRONTEND_ORIGINS = (process.env.FRONTEND_ORIGIN || "http://localhost:8080")
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  const FRONTEND_ORIGIN = FRONTEND_ORIGINS[0] || "http://localhost:8080";
 
   app.use(requestIdMiddleware);
 
@@ -136,7 +156,7 @@ export function createApp(): Application {
 
   app.use(
     cors({
-      origin: FRONTEND_ORIGIN,
+      origin: FRONTEND_ORIGINS,
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE"],
       allowedHeaders: [
@@ -150,34 +170,72 @@ export function createApp(): Application {
 
   app.use(
     helmet({
-      contentSecurityPolicy: false,
+      // To jest serwer API + mała strona informacyjna na "/" (z inline <style>).
+      // SPA jest serwowane osobno przez nginx (własny CSP) — tu wystarczy sensowny baseline.
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          "default-src": ["'self'"],
+          "script-src": ["'self'"],
+          "style-src": ["'self'", "'unsafe-inline'"],
+          "img-src": ["'self'", "data:"],
+          "object-src": ["'none'"],
+          "base-uri": ["'self'"],
+          "frame-ancestors": ["'self'"],
+        },
+      },
       crossOriginEmbedderPolicy: false,
     })
   );
 
   app.use(express.json({ limit: "12mb" }));
+  app.use(cookieParser());
 
-  const generalApiLimiter = rateLimit({
+  // Gdy skonfigurowany jest REDIS_URL, limity są współdzielone między replikami
+  // (jeden licznik na cały klaster). Bez Redis — store w pamięci (pojedyncza instancja).
+  const makeLimiter = (
+    opts: Partial<RateLimitOptions> & { prefix: string }
+  ) => {
+    const redis = getRedis();
+    const { prefix, ...rest } = opts;
+    return rateLimit({
+      standardHeaders: true,
+      legacyHeaders: false,
+      ...rest,
+      ...(redis
+        ? {
+            store: new RedisStore({
+              prefix: `rl:${prefix}:`,
+              sendCommand: (...args: string[]) =>
+                (
+                  redis.call as (
+                    ...a: string[]
+                  ) => Promise<string | number | string[]>
+                )(...args),
+            }),
+          }
+        : {}),
+    });
+  };
+
+  const generalApiLimiter = makeLimiter({
+    prefix: "api",
     windowMs: 15 * 60 * 1000,
     max: 200,
-    standardHeaders: true,
-    legacyHeaders: false,
     message: { error: "Too many requests, please try again later" },
   });
 
-  const aiLimiter = rateLimit({
+  const aiLimiter = makeLimiter({
+    prefix: "ai",
     windowMs: 1 * 60 * 1000,
     max: 20,
-    standardHeaders: true,
-    legacyHeaders: false,
     message: { error: "AI rate limit exceeded, please wait" },
   });
 
-  const uploadLimiter = rateLimit({
+  const uploadLimiter = makeLimiter({
+    prefix: "upload",
     windowMs: 5 * 60 * 1000,
     max: 10,
-    standardHeaders: true,
-    legacyHeaders: false,
     message: { error: "Too many uploads, please try again later" },
   });
 
@@ -198,12 +256,35 @@ export function createApp(): Application {
     res.json(healthPayload());
   });
 
-  app.get("/api/readyz", (_req, res) => {
+  app.get("/api/readyz", async (_req, res) => {
     if (!isAppReady) {
       res.status(503).json({ status: "not ready" });
       return;
     }
-    res.json({ status: "ready" });
+    const checks: { db: boolean; redis: boolean | "n/a" } = {
+      db: false,
+      redis: "n/a",
+    };
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      checks.db = true;
+    } catch {
+      checks.db = false;
+    }
+    const redis = getRedis();
+    if (redis) {
+      try {
+        const pong = await redis.ping();
+        checks.redis = pong === "PONG";
+      } catch {
+        checks.redis = false;
+      }
+    }
+    const ready = checks.db && checks.redis !== false;
+    res.status(ready ? 200 : 503).json({
+      status: ready ? "ready" : "degraded",
+      checks,
+    });
   });
 
   app.use("/api/auth", authRoutes);

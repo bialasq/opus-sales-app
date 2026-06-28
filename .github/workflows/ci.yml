@@ -23,9 +23,13 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
       - name: Lint backend
         working-directory: backend
-        run: npm run lint --if-present
+        run: npm run lint
 
       - name: Typecheck backend
         working-directory: backend
@@ -36,6 +40,19 @@ jobs:
         run: npm test
         env:
           API_KEY: test-api-key-32-chars-long-string-aaaaaa
+          JWT_SECRET: test-jwt-secret-32-chars-minimum-for-ci-aaaa
+          ANTHROPIC_API_KEY: test-mock-key
+          OPENAI_API_KEY: test-mock-key
+          AI_BUDGET_USD_PER_DAY: "100"
+          AI_REQUEST_TIMEOUT_MS: "5000"
+
+      - name: Coverage backend (informational)
+        working-directory: backend
+        continue-on-error: true
+        run: npm run test:coverage
+        env:
+          API_KEY: test-api-key-32-chars-long-string-aaaaaa
+          JWT_SECRET: test-jwt-secret-32-chars-minimum-for-ci-aaaa
           ANTHROPIC_API_KEY: test-mock-key
           OPENAI_API_KEY: test-mock-key
           AI_BUDGET_USD_PER_DAY: "100"
@@ -45,10 +62,9 @@ jobs:
         working-directory: backend
         run: npm run build
 
-      - name: Security audit (backend)
+      - name: Security audit (backend, prod deps)
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
 
   frontend:
     runs-on: ubuntu-latest
@@ -68,7 +84,7 @@ jobs:
 
       - name: Lint frontend
         working-directory: frontend
-        run: npm run lint --if-present
+        run: npm run lint
 
       - name: Typecheck frontend
         working-directory: frontend
@@ -78,7 +94,6 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Security audit (frontend)
+      - name: Security audit (frontend, prod deps)
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true

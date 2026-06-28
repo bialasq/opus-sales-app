@@ -1,0 +1,102 @@
+name: Deploy (VPS)
+
+# Buduje obrazy backendu i frontu, publikuje je do GitHub Container Registry (GHCR),
+# a następnie wdraża na serwerze VPS przez SSH (`docker compose pull && up -d`).
+#
+# Uruchamia się przy tagu wersji (v1.2.3) lub ręcznie (workflow_dispatch).
+#
+# WYMAGANE SEKRETY (Settings → Secrets and variables → Actions):
+#   SSH_HOST        – adres serwera (IP lub domena)
+#   SSH_USER        – użytkownik SSH
+#   SSH_KEY         – prywatny klucz SSH (PEM) z dostępem do serwera
+#   SSH_PORT        – (opcjonalnie) port SSH, domyślnie 22
+#   DEPLOY_PATH     – ścieżka do repo na serwerze (zawiera docker-compose.prod.yml i .env)
+#   GHCR_PAT        – (opcjonalnie) PAT z scope read:packages do logowania na GHCR na serwerze,
+#                     jeśli obrazy są prywatne. Dla publicznych pakietów nie jest potrzebny.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      repo_lc: ${{ steps.meta.outputs.repo_lc }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image metadata
+        id: meta
+        run: |
+          REPO_LC=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then TAG="${GITHUB_SHA::12}"; fi
+          echo "repo_lc=$REPO_LC" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo_lc }}-backend:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo_lc }}-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo_lc }}-frontend:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo_lc }}-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+            cd "${{ secrets.DEPLOY_PATH }}"
+            export BACKEND_IMAGE="${{ env.REGISTRY }}/${{ needs.build-push.outputs.repo_lc }}-backend:${{ needs.build-push.outputs.tag }}"
+            export FRONTEND_IMAGE="${{ env.REGISTRY }}/${{ needs.build-push.outputs.repo_lc }}-frontend:${{ needs.build-push.outputs.tag }}"
+            if [ -n "${{ secrets.GHCR_PAT }}" ]; then
+              echo "${{ secrets.GHCR_PAT }}" | docker login ${{ env.REGISTRY }} -u "${{ github.actor }}" --password-stdin
+            fi
+            git pull --ff-only || true
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            docker image prune -f

@@ -260,7 +260,10 @@ export default {
 
     watch(
       () => props.data,
-      () => nextTick(() => renderCharts()),
+      async () => {
+        await nextTick();
+        renderCharts();
+      },
       { deep: true }
     );
 

@@ -1,4 +1,21 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-opus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opus}
+      POSTGRES_DB: ${POSTGRES_DB:-opus}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opus} -d ${POSTGRES_DB:-opus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -14,6 +31,13 @@ services:
     environment:
       NODE_ENV: development
       PORT: "3000"
+      # W Dockerze host bazy to `postgres` (nie localhost z backend/.env).
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-opus}:${POSTGRES_PASSWORD:-opus}@postgres:5432/${POSTGRES_DB:-opus}?schema=public}
+    # Generujemy klienta Prisma i stosujemy migracje przed startem dev-servera.
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run dev"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build:
@@ -35,3 +59,4 @@ services:
 volumes:
   backend_node_modules:
   frontend_node_modules:
+  postgres_data:

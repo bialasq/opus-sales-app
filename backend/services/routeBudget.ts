@@ -95,7 +95,7 @@ export function trimStopsToDayBudget(visitStops: RoutePlanStop[]): {
   routeShortenedForReturn: boolean;
 } {
   const removed: RoutePlanStop[] = [];
-  let working = [...visitStops];
+  const working = [...visitStops];
   let routeShortenedForReturn = false;
 
   while (working.length > 0) {

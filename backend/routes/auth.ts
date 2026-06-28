@@ -1,4 +1,8 @@
-import express, { type Request, type Response } from "express";
+import express, {
+  type CookieOptions,
+  type Request,
+  type Response,
+} from "express";
 import { sessionAuth } from "../middleware/session";
 import {
   registerOrganization,
@@ -10,6 +14,32 @@ import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/auth");
 const router = express.Router();
+
+// --- Refresh token w httpOnly cookie (niedostępny dla JS → odporny na XSS) ---
+const REFRESH_COOKIE = "opus_refresh";
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 dni — zgodne z REFRESH_TOKEN_TTL_DAYS
+
+function refreshCookieOptions(): CookieOptions {
+  const sameSite =
+    (process.env.COOKIE_SAMESITE as CookieOptions["sameSite"]) || "lax";
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite,
+    // Cookie wysyłane tylko do tras auth (refresh/logout) — minimalna ekspozycja.
+    path: "/api/auth",
+    maxAge: REFRESH_TTL_MS,
+  };
+}
+
+function setRefreshCookie(res: Response, token: string): void {
+  res.cookie(REFRESH_COOKIE, token, refreshCookieOptions());
+}
+
+function clearRefreshCookie(res: Response): void {
+  const { maxAge: _maxAge, ...opts } = refreshCookieOptions();
+  res.clearCookie(REFRESH_COOKIE, opts);
+}
 
 // Trasy register/login/refresh/logout są w PUBLIC_PATHS (sessionAuth je przepuszcza
 // globalnie). /me wymaga tokenu — sessionAuth podpięty bezpośrednio na tej trasie
@@ -44,8 +74,9 @@ router.post("/login", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Wymagane: email, password" });
       return;
     }
-    const tokens = await login(email, password);
-    res.json(tokens);
+    const { accessToken, refreshToken } = await login(email, password);
+    setRefreshCookie(res, refreshToken);
+    res.json({ accessToken });
   } catch (err) {
     // Świadomie ogólny komunikat — nie zdradzamy, czy to e-mail czy hasło.
     log.warn("Nieudane logowanie", { ip: req.ip });
@@ -55,21 +86,26 @@ router.post("/login", async (req: Request, res: Response) => {
 
 router.post("/refresh", async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = req.body ?? {};
+    // Refresh token czytamy WYŁĄCZNIE z httpOnly cookie (nie z body).
+    const refreshToken = req.cookies?.[REFRESH_COOKIE];
     if (!refreshToken) {
-      res.status(400).json({ error: "Wymagany refreshToken" });
+      res.status(401).json({ error: "Brak refresh tokenu" });
       return;
     }
-    const tokens = await refreshTokens(refreshToken);
-    res.json(tokens);
+    const { accessToken, refreshToken: rotated } =
+      await refreshTokens(refreshToken);
+    setRefreshCookie(res, rotated);
+    res.json({ accessToken });
   } catch {
+    clearRefreshCookie(res);
     res.status(401).json({ error: "Nieprawidłowy lub wygasły refresh token" });
   }
 });
 
 router.post("/logout", async (req: Request, res: Response) => {
-  const { refreshToken } = req.body ?? {};
+  const refreshToken = req.cookies?.[REFRESH_COOKIE];
   if (refreshToken) await logout(refreshToken);
+  clearRefreshCookie(res);
   res.json({ ok: true });
 });
 
