@@ -11,6 +11,7 @@ import {
   logout,
 } from "../services/authService";
 import { createLogger } from "../services/appLogger";
+import { prisma } from "../services/prisma";
 
 const log = createLogger("routes/auth");
 const router = express.Router();
@@ -110,16 +111,36 @@ router.post("/logout", async (req: Request, res: Response) => {
 });
 
 /** Kto jestem — wygodne dla frontu po odświeżeniu strony. */
-router.get("/me", sessionAuth, (req: Request, res: Response) => {
+router.get("/me", sessionAuth, async (req: Request, res: Response) => {
   if (!req.auth) {
     res.status(401).json({ error: "Niezalogowany" });
     return;
   }
-  res.json({
+  const base = {
     userId: req.auth.userId,
     organizationId: req.auth.organizationId,
     role: req.auth.role,
-  });
+  };
+  try {
+    // Wzbogacenie o dane z bazy (e-mail, nazwa organizacji) dla UI konta.
+    const user = await prisma.user.findUnique({
+      where: { id: req.auth.userId },
+      select: {
+        email: true,
+        name: true,
+        organization: { select: { name: true } },
+      },
+    });
+    res.json({
+      ...base,
+      email: user?.email,
+      name: user?.name ?? null,
+      organizationName: user?.organization?.name,
+    });
+  } catch {
+    // Baza chwilowo niedostępna — zwróć minimalny kontekst z tokenu.
+    res.json(base);
+  }
 });
 
 export default router;

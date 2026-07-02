@@ -372,3 +372,50 @@ export interface StoredMapping {
 export interface OrganizationSettings {
   columnMappings?: Record<string, StoredMapping>;
 }
+
+// ---------------------------------------------------------------------------
+// Konto / pliki / historia jobów (UI zarządzania)
+// ---------------------------------------------------------------------------
+
+/** GET /api/auth/me — kontekst zalogowanego użytkownika (wzbogacony o dane z bazy). */
+export interface AuthMeResponse {
+  userId: string;
+  organizationId: string;
+  role: "OWNER" | "ADMIN" | "MEMBER";
+  email?: string;
+  name?: string | null;
+  organizationName?: string;
+}
+
+/** Pozycja na liście plików organizacji (GET /api/files). */
+export interface OrgFileSummary {
+  id: string;
+  /** Klucz w storage — to jest `filename` przekazywany do endpointów analitycznych. */
+  storageKey: string;
+  originalName: string;
+  sizeBytes: number;
+  createdAt: string;
+  uploadedBy: { name: string | null; email: string } | null;
+  /** Liczba jobów AI wykonanych na tym pliku. */
+  jobsCount: number;
+}
+
+export interface OrgFilesResponse {
+  files: OrgFileSummary[];
+}
+
+/** Pozycja historii jobów AI (GET /api/ai/insights/jobs). */
+export interface AiJobSummary {
+  sessionId: string;
+  status: "PENDING" | "RUNNING" | "DONE" | "FAILED";
+  currentStep: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  file: { originalName: string; storageKey: string } | null;
+  createdBy: { name: string | null; email: string } | null;
+}
+
+export interface AiJobsResponse {
+  jobs: AiJobSummary[];
+}

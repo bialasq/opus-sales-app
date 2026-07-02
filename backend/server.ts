@@ -33,6 +33,7 @@ import paymentsRoutes from "./routes/payments";
 import aiRoutes from "./routes/ai";
 import adminRoutes from "./routes/admin";
 import authRoutes from "./routes/auth";
+import filesRoutes from "./routes/files";
 import { requireOrg, sessionAuth } from "./middleware/session";
 import { constantTimeEqual } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
@@ -401,6 +402,7 @@ export function createApp(): Application {
   app.use("/api/payments", paymentsRoutes);
   app.use("/api/ai", aiRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/files", filesRoutes);
 
   const PORT: number = Number(process.env.PORT) || 3000;
 

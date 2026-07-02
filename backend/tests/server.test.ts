@@ -159,6 +159,30 @@ describe("HTTP integration (createApp)", () => {
     });
   });
 
+  describe("Files & jobs endpoints (auth guards)", () => {
+    it("GET /api/files without auth → 401", async () => {
+      const res = await request(app).get("/api/files");
+      expect(res.status).toBe(401);
+    });
+
+    it("GET /api/files with legacy x-api-key (no org) → 403", async () => {
+      const res = await request(app).get("/api/files").set(authHeaders());
+      expect(res.status).toBe(403);
+    });
+
+    it("GET /api/ai/insights/jobs with legacy x-api-key (no org) → 403", async () => {
+      const res = await request(app)
+        .get("/api/ai/insights/jobs")
+        .set(authHeaders());
+      expect(res.status).toBe(403);
+    });
+
+    it("DELETE /api/files/:id without auth → 401", async () => {
+      const res = await request(app).delete("/api/files/some-id");
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe("Rate limiting", () => {
     it("returns 429 after repeated failed logins (brute-force guard)", async () => {
       const attempts = Array.from({ length: 12 }, () =>
