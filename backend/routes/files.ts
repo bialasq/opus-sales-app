@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from "express";
 import { requireOrg } from "../middleware/session";
+import { asyncHandler } from "../utils/asyncHandler";
 import { prisma } from "../services/prisma";
 import { orgStorage } from "../services/orgStorage";
 import { createLogger } from "../services/appLogger";
@@ -13,8 +14,10 @@ const router = express.Router();
  * Metadane pochodzą z bazy (UploadedFile), nie z listingu storage,
  * więc widzimy autora, datę i liczbę jobów bez dotykania S3.
  */
-router.get("/", requireOrg, async (req: Request, res: Response) => {
-  try {
+router.get(
+  "/",
+  requireOrg,
+  asyncHandler(async (req: Request, res: Response) => {
     const rows = await prisma.uploadedFile.findMany({
       where: { organizationId: req.auth!.organizationId },
       orderBy: { createdAt: "desc" },
@@ -41,18 +44,17 @@ router.get("/", requireOrg, async (req: Request, res: Response) => {
       jobsCount: r._count.jobs,
     }));
     res.json({ files });
-  } catch (err) {
-    log.error("GET /api/files", err);
-    res.status(500).json({ error: "Nie udało się pobrać listy plików" });
-  }
-});
+  })
+);
 
 /**
  * Usunięcie pliku: rekord w bazie (kaskadowo joby) + obiekt w storage.
  * Może usuwać OWNER/ADMIN organizacji albo osoba, która plik wgrała.
  */
-router.delete("/:id", requireOrg, async (req: Request, res: Response) => {
-  try {
+router.delete(
+  "/:id",
+  requireOrg,
+  asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params as { id: string };
     const orgId = req.auth!.organizationId;
 
@@ -82,16 +84,12 @@ router.delete("/:id", requireOrg, async (req: Request, res: Response) => {
     } catch (storageErr) {
       log.warn("Nie udało się usunąć obiektu ze storage (rekord usunięty)", {
         storageKey: file.storageKey,
-        detail:
-          storageErr instanceof Error ? storageErr.message : "unknown",
+        detail: storageErr instanceof Error ? storageErr.message : "unknown",
       });
     }
 
     res.json({ ok: true });
-  } catch (err) {
-    log.error("DELETE /api/files/:id", err);
-    res.status(500).json({ error: "Nie udało się usunąć pliku" });
-  }
-});
+  })
+);
 
 export default router;
