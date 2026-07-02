@@ -90,6 +90,10 @@ jobs:
         working-directory: frontend
         run: npm run typecheck
 
+      - name: Test frontend
+        working-directory: frontend
+        run: npm test
+
       - name: Build frontend
         working-directory: frontend
         run: npm run build
