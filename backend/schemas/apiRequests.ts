@@ -16,6 +16,8 @@ export type FilenameBody = z.infer<typeof filenameBodySchema>;
 export const sendReminderBodySchema = z.object({
   invoiceNumber: z.string().optional(),
   customerId: z.string().optional(),
+  customerEmail: z.string().email().optional(),
+  amount: z.number().optional(),
 });
 
 export const paymentsOverdueBodySchema = z
@@ -32,8 +34,8 @@ export const promotionsBodySchema = z
           id: z.string().optional(),
           name: z.string(),
           rotationRate: z.number(),
-          stock: z.number().optional(),
-          minStock: z.number().optional(),
+          stock: z.number().nullable().optional(),
+          minStock: z.number().nullable().optional(),
         })
       )
       .optional(),

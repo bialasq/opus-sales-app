@@ -76,7 +76,9 @@ export function sessionAuth(
   }
 
   // --- Tryb 2: legacy x-api-key ---
-  const legacyEnabled = process.env.LEGACY_API_KEY_ENABLED !== "false";
+  // Domyślnie WYŁĄCZONE (bezpieczniej + zgodnie z .env.example i docs).
+  // Aby włączyć zgodność wsteczną, ustaw jawnie LEGACY_API_KEY_ENABLED=true.
+  const legacyEnabled = process.env.LEGACY_API_KEY_ENABLED === "true";
   if (legacyEnabled) {
     const configured = process.env.API_KEY?.trim() || "";
     const provided = req.header("x-api-key");

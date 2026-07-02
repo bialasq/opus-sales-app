@@ -9,6 +9,30 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # Realny Postgres, żeby testy izolacji multi-tenant faktycznie się wykonały
+    # (bez bazy graceful-skipują — regresje tenantów mogłyby przejść niezauważone).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: opus
+          POSTGRES_PASSWORD: opus
+          POSTGRES_DB: opus_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U opus -d opus_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://opus:opus@localhost:5432/opus_test?schema=public
+      API_KEY: test-api-key-32-chars-long-string-aaaaaa
+      JWT_SECRET: test-jwt-secret-32-chars-minimum-for-ci-aaaa
+      ANTHROPIC_API_KEY: test-mock-key
+      OPENAI_API_KEY: test-mock-key
+      AI_BUDGET_USD_PER_DAY: "100"
+      AI_REQUEST_TIMEOUT_MS: "5000"
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +51,10 @@ jobs:
         working-directory: backend
         run: npx prisma generate
 
+      - name: Apply migrations (test DB)
+        working-directory: backend
+        run: npx prisma migrate deploy
+
       - name: Lint backend
         working-directory: backend
         run: npm run lint
@@ -38,25 +66,11 @@ jobs:
       - name: Test backend
         working-directory: backend
         run: npm test
-        env:
-          API_KEY: test-api-key-32-chars-long-string-aaaaaa
-          JWT_SECRET: test-jwt-secret-32-chars-minimum-for-ci-aaaa
-          ANTHROPIC_API_KEY: test-mock-key
-          OPENAI_API_KEY: test-mock-key
-          AI_BUDGET_USD_PER_DAY: "100"
-          AI_REQUEST_TIMEOUT_MS: "5000"
 
       - name: Coverage backend (informational)
         working-directory: backend
         continue-on-error: true
         run: npm run test:coverage
-        env:
-          API_KEY: test-api-key-32-chars-long-string-aaaaaa
-          JWT_SECRET: test-jwt-secret-32-chars-minimum-for-ci-aaaa
-          ANTHROPIC_API_KEY: test-mock-key
-          OPENAI_API_KEY: test-mock-key
-          AI_BUDGET_USD_PER_DAY: "100"
-          AI_REQUEST_TIMEOUT_MS: "5000"
 
       - name: Build backend
         working-directory: backend

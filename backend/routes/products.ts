@@ -31,8 +31,9 @@ router.post(
           id,
           name: product.name,
           category: product.category || "Inne",
-          stock: Math.floor(Math.random() * 100) + 10,
-          minStock: 20,
+          // Stan magazynowy nie wynika z danych sprzedaży — nie zmyślamy go.
+          stock: null,
+          minStock: null,
           rotationRate: product.rotationRate || 0,
           sales: product.sales,
           totalQuantity: product.sales.reduce((sum, sale) => sum + sale.quantity, 0),
@@ -54,6 +55,7 @@ router.post(
         seasonalTrends,
         totalProducts: Object.keys(productAnalysis).length,
         categories: [...new Set(products.map((p) => p.category))],
+        stockDataAvailable: false,
       };
 
       res.json(out);
@@ -80,6 +82,7 @@ router.post(
 
 router.post(
   "/promotions",
+  requireOrg,
   validateBody(promotionsBodySchema),
   async (req: Request, res: Response) => {
     try {
@@ -130,9 +133,13 @@ router.post(
             }
           }
 
-          const stock = product.stock ?? 0;
-          const minStock = product.minStock ?? 20;
-          if (stock > minStock * 3) {
+          // Rekomendacja z nadmiaru magazynowego wymaga REALNEGO stanu —
+          // pomijamy, gdy stock jest nieznany (null), by nie zmyślać przesłanki.
+          if (
+            typeof product.stock === "number" &&
+            typeof product.minStock === "number" &&
+            product.stock > product.minStock * 3
+          ) {
             suggestions.push({
               productId: product.id,
               productName: product.name,

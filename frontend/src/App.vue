@@ -33,24 +33,6 @@
           </el-button>
         </el-upload>
 
-        <!-- Przełącznik motywu -->
-        <el-tooltip
-          :content="ui.dark ? 'Tryb jasny' : 'Tryb ciemny'"
-          placement="bottom"
-        >
-          <button
-            type="button"
-            class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:text-white"
-            aria-label="Przełącz motyw"
-            @click="ui.toggleDark()"
-          >
-            <el-icon :size="18">
-              <Sunny v-if="ui.dark" />
-              <Moon v-else />
-            </el-icon>
-          </button>
-        </el-tooltip>
-
         <!-- Menu użytkownika -->
         <el-dropdown v-if="auth.isLoggedIn" trigger="click">
           <button
@@ -58,7 +40,7 @@
             class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm transition-colors hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800"
           >
             <span
-              class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 text-xs font-bold text-white"
+              class="brand-gradient flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white"
             >
               {{ userInitial }}
             </span>
@@ -115,13 +97,11 @@ import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import { getAuthHeaders, uploadActionUrl } from "@/services/api";
 import { ensureFreshToken } from "@/services/auth";
 import { useAuthStore } from "@/stores/auth";
-import { useUiStore } from "@/stores/ui";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const ui = useUiStore();
 const workspace = useWorkspaceStore();
 
 const isPublicRoute = computed(() => !!route.meta.public);

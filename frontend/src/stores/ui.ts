@@ -17,16 +17,16 @@ export const useUiStore = defineStore("ui", {
   actions: {
     /** Wywołać raz przy starcie, przed zamontowaniem aplikacji. */
     initTheme(): void {
-      let stored: string | null = null;
+      // Aplikacja jest jasna (styl CRM). Przełącznik ciemnego motywu został
+      // usunięty z UI, więc ignorujemy też zapisany wybór — inaczej ktoś
+      // z historycznym "dark" w localStorage utknąłby w ciemnym motywie.
+      this.dark = false;
       try {
-        stored = localStorage.getItem(THEME_KEY);
+        localStorage.removeItem(THEME_KEY);
       } catch {
         /* brak localStorage */
       }
-      this.dark = stored
-        ? stored === "dark"
-        : window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-      applyDarkClass(this.dark);
+      applyDarkClass(false);
     },
 
     toggleDark(): void {

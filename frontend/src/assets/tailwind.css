@@ -3,15 +3,39 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Jeden stack dla całej aplikacji — nadpisuje też font Element Plus. */
+    --el-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+    /* Kolor primary Element Plus = akcent marki (bursztyn/pomarańcz).
+       Pełna rampa light/dark, żeby hover/plain/disabled EP wyglądały spójnie. */
+    --el-color-primary: #f59e0b;
+    --el-color-primary-dark-2: #d97706;
+    --el-color-primary-light-3: #f7b13b;
+    --el-color-primary-light-5: #fbcb6d;
+    --el-color-primary-light-7: #fde19f;
+    --el-color-primary-light-8: #feecc4;
+    --el-color-primary-light-9: #fff7e6;
+  }
   html {
     @apply scroll-smooth;
   }
   body {
-    @apply m-0 bg-slate-50 text-slate-900 antialiased;
+    @apply m-0 bg-slate-50 font-sans text-slate-900 antialiased;
+  }
+  /* Preflight jest wyłączony (Element Plus) — bez tej reguły RouterLinki
+     dostają domyślne podkreślenia i kolory przeglądarki. */
+  a {
+    text-decoration: none;
   }
 }
 
 @layer components {
+  /* Gradient marki: żółty → pastelowy żółty → pomarańcz. */
+  .brand-gradient {
+    @apply bg-gradient-to-br from-yellow-300 via-amber-300 to-orange-500;
+  }
+
   .sales-table-wrap {
     @apply -mx-1 overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-card sm:mx-0;
   }

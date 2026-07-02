@@ -310,12 +310,18 @@ Dział Księgowości`,
           ElMessage.success("Przypomnienie wysłane pomyślnie");
         }
       } catch (error) {
-        if (error !== "cancel") {
-          ElMessage.error(
-            "Nie udało się wysłać przypomnienia. " +
-              (error.response?.data?.error || error.message || "")
+        if (error === "cancel") return;
+        if (error.response?.status === 501) {
+          ElMessage.info(
+            error.response.data?.error ||
+              "Wysyłka e-mail nie jest skonfigurowana."
           );
+          return;
         }
+        ElMessage.error(
+          "Nie udało się wysłać przypomnienia. " +
+            (error.response?.data?.error || error.message || "")
+        );
       }
     };
 
@@ -350,12 +356,18 @@ Dział Księgowości`,
 
         ElMessage.success(`Wysłano ${sent} przypomnień`);
       } catch (error) {
-        if (error !== "cancel") {
-          ElMessage.error(
-            "Nie udało się wysłać przypomnień. " +
-              (error.response?.data?.error || error.message || "")
+        if (error === "cancel") return;
+        if (error.response?.status === 501) {
+          ElMessage.info(
+            error.response.data?.error ||
+              "Wysyłka e-mail nie jest skonfigurowana."
           );
+          return;
         }
+        ElMessage.error(
+          "Nie udało się wysłać przypomnień. " +
+            (error.response?.data?.error || error.message || "")
+        );
       }
     };
 

@@ -254,6 +254,7 @@ router.post(
 
 router.post(
   "/comprehensive-expert-ai",
+  requireOrg,
   validateBody(comprehensiveExpertAiBodySchema),
   async (req: Request, res: Response) => {
     try {
@@ -270,6 +271,7 @@ router.post(
 
 router.post(
   "/generate-report",
+  requireOrg,
   validateBody(generateReportBodySchema),
   async (req: Request, res: Response) => {
     try {
@@ -297,6 +299,7 @@ router.post(
 
 router.post(
   "/route-optimization",
+  requireOrg,
   validateBody(routeOptimizationBodySchema),
   async (req: Request, res: Response) => {
     try {

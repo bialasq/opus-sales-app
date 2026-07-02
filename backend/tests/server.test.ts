@@ -183,6 +183,51 @@ describe("HTTP integration (createApp)", () => {
     });
   });
 
+  describe("AI analytics route guards (requireOrg)", () => {
+    const aiRoutes = [
+      "/api/analytics/comprehensive-expert-ai",
+      "/api/analytics/generate-report",
+      "/api/analytics/route-optimization",
+      "/api/products/promotions",
+    ];
+
+    for (const route of aiRoutes) {
+      it(`POST ${route} without auth → 401`, async () => {
+        const res = await request(app).post(route).send({});
+        expect(res.status).toBe(401);
+      });
+
+      it(`POST ${route} with legacy x-api-key (no org) → 403`, async () => {
+        const res = await request(app).post(route).set(authHeaders()).send({});
+        expect(res.status).toBe(403);
+      });
+    }
+  });
+
+  describe("Data integrity (no fake data)", () => {
+    it("POST /api/payments/overdue without a file → available:false (no mock invoices)", async () => {
+      const res = await request(app)
+        .post("/api/payments/overdue")
+        .set(bearerHeaders())
+        .send({});
+      expect(res.status).toBe(200);
+      expect(res.body.available).toBe(false);
+      expect(res.body.data).toBeUndefined();
+    });
+
+    it("POST /api/payments/send-reminder without SMTP → 501 (does not fake sending)", async () => {
+      const prev = process.env.SMTP_HOST;
+      delete process.env.SMTP_HOST;
+      const res = await request(app)
+        .post("/api/payments/send-reminder")
+        .set(bearerHeaders())
+        .send({ invoiceNumber: "FV/1", customerId: "1" });
+      expect(res.status).toBe(501);
+      expect(res.body.success).toBe(false);
+      if (prev !== undefined) process.env.SMTP_HOST = prev;
+    });
+  });
+
   describe("Rate limiting", () => {
     it("returns 429 after repeated failed logins (brute-force guard)", async () => {
       const attempts = Array.from({ length: 12 }, () =>

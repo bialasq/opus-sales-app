@@ -9,16 +9,9 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: [
-          "system-ui",
-          "-apple-system",
-          "BlinkMacSystemFont",
-          '"Segoe UI"',
-          "Roboto",
-          '"Helvetica Neue"',
-          "Arial",
-          "sans-serif",
-        ],
+        // Helvetica-first: prawdziwa Helvetica na macOS, metrycznie zgodny
+        // Arial na Windows (Helvetica nie jest tam instalowana).
+        sans: ['"Helvetica Neue"', "Helvetica", "Arial", "sans-serif"],
       },
       boxShadow: {
         card: "0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.06)",

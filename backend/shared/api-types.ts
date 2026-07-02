@@ -168,8 +168,13 @@ export interface Product {
   id: string;
   name: string;
   category: string;
-  stock: number;
-  minStock: number;
+  /**
+   * Aktualny stan magazynowy. NULL, gdy pochodzi z pliku sprzedaży — arkusze
+   * sprzedaży nie zawierają stanów magazynowych, więc nie zmyślamy liczby.
+   * Realna wartość pojawi się dopiero po integracji z systemem magazynowym.
+   */
+  stock: number | null;
+  minStock: number | null;
   rotationRate: number;
   sales: ProductSalePoint[];
   totalQuantity: number;
@@ -181,6 +186,8 @@ export interface ProductAnalysisResponse {
   seasonalTrends: Record<string, Record<number, number> | number[]>;
   totalProducts: number;
   categories: string[];
+  /** false = brak realnych danych magazynowych (stock/minStock są null). */
+  stockDataAvailable: boolean;
 }
 
 export interface DashboardTopProduct {

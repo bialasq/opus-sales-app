@@ -9,12 +9,13 @@ describe("ui store (theme)", () => {
     document.documentElement.classList.remove("dark");
   });
 
-  it("initTheme honours stored preference", () => {
+  it("initTheme forces light and clears a stale stored dark preference", () => {
     localStorage.setItem("opus_theme", "dark");
     const ui = useUiStore();
     ui.initTheme();
-    expect(ui.dark).toBe(true);
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(ui.dark).toBe(false);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(localStorage.getItem("opus_theme")).toBeNull();
   });
 
   it("toggleDark flips the class and persists", () => {
