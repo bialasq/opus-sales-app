@@ -1,10 +1,11 @@
-import * as v1 from "./agent_v1";
 import * as v2 from "./agent_v2";
 
 export type PromptPack = typeof v2;
 
+// agent_v1 wycofany — jego appendUserConstraint wklejał surowy tekst użytkownika
+// do promptu (podatność na prompt injection). Zostaje wyłącznie bezpieczny agent_v2.
+// Nieznana wartość AGENT_PROMPT_VERSION spada na v2 (patrz getActivePrompts).
 const packs: Record<string, PromptPack> = {
-  agent_v1: v1 as unknown as PromptPack,
   agent_v2: v2,
 };
 

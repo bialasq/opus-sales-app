@@ -207,7 +207,7 @@ On stop, **`buildPartialAgenticResult`** returns partial suggestions + `meta.par
 | `eval_summary` | Counts from `evaluateAllSuggestions` |
 | `judge_review` | Output of `runJudgeReview` when present |
 
-**Prompt pack switch:** `AGENT_PROMPT_VERSION` → `backend/prompts/index.ts` maps to `agent_v1` or `agent_v2`.
+**Prompt pack:** `AGENT_PROMPT_VERSION` selects a pack in `backend/prompts/index.ts`. Only `agent_v2` remains — the legacy `agent_v1` was retired because its `appendUserConstraint` injected raw user text into the prompt (prompt-injection risk); any other value falls back to `agent_v2`.
 
 **Adding a tool:** register in **`backend/services/aiAgentTools.ts`** (`name`, `description`, `parameters`, `execute`). OpenAI uses JSON Schema–like `parameters`; the Strategist discovers tools by description. Run `npm run typecheck` in `backend/`.
 
