@@ -77,6 +77,28 @@ export type RegisterResult = {
 // gdy token się zmieni (login/refresh). Zwykła zmienna modułowa nie była śledzona przez Vue.
 const accessTokenRef = ref<string | null>(null);
 
+// Nietajny znacznik "była tu sesja" — sam refresh token siedzi w httpOnly cookie
+// (niedostępny dla JS). Dzięki flagze initSession() nie strzela /auth/refresh
+// u użytkowników, którzy nigdy się nie logowali (401-szum w logach przy każdym wejściu).
+const SESSION_HINT_KEY = "opus_session_hint";
+
+function setSessionHint(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(SESSION_HINT_KEY, "1");
+    else localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    /* localStorage niedostępny (np. tryb prywatny) — trudno, hint jest opcjonalny */
+  }
+}
+
+function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === "1";
+  } catch {
+    return true; // brak localStorage → zachowanie jak dotychczas (spróbuj refresh)
+  }
+}
+
 export function getAccessToken(): string | null {
   return accessTokenRef.value;
 }
@@ -125,6 +147,7 @@ export async function login(email: string, password: string): Promise<void> {
     { email, password }
   );
   setAccessToken(data.accessToken);
+  setSessionHint(true);
 }
 
 export async function logout(): Promise<void> {
@@ -135,6 +158,7 @@ export async function logout(): Promise<void> {
     /* best-effort */
   }
   clearTokens();
+  setSessionHint(false);
 }
 
 export async function fetchMe(): Promise<AuthMe> {
@@ -156,9 +180,11 @@ export async function tryRefreshAccessToken(): Promise<boolean> {
       {}
     );
     setAccessToken(data.accessToken);
+    setSessionHint(true);
     return true;
   } catch {
     clearTokens();
+    setSessionHint(false);
     return false;
   }
 }
@@ -166,7 +192,9 @@ export async function tryRefreshAccessToken(): Promise<boolean> {
 /**
  * Przy starcie aplikacji próbuje odtworzyć sesję z refresh-cookie.
  * Zwraca true, jeśli użytkownik jest zalogowany (cookie ważne).
+ * Pomija wywołanie sieciowe, gdy nie ma śladu wcześniejszej sesji.
  */
 export async function initSession(): Promise<boolean> {
+  if (!hasSessionHint()) return false;
   return tryRefreshAccessToken();
 }
