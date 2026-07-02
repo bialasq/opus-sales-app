@@ -111,7 +111,6 @@ function buildDailySeries(
   };
 
   const series: DailySeriesPoint[] = [];
-  let gapFilled = 0;
   let dayIndex = 0;
   const cur = parseYmd(dateKeys[0]);
   const endDate = parseYmd(dateKeys[dateKeys.length - 1]);
@@ -119,7 +118,6 @@ function buildDailySeries(
   for (let d = new Date(cur); d.getTime() <= endDate.getTime(); d.setDate(d.getDate() + 1)) {
     const dateKey = formatYmd(d);
     const bucket = byDay.get(dateKey);
-    if (!bucket) gapFilled += 1;
     const quantity = Math.max(0, bucket?.quantity ?? 0);
     const revenue = Math.max(0, bucket?.revenue ?? 0);
     series.push({ dayIndex, dateKey, quantity, revenue });

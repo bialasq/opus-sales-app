@@ -329,7 +329,7 @@ export default {
         ];
 
         ElMessage.success("Rekomendacje AI wygenerowane");
-      } catch (error) {
+      } catch {
         ElMessage.error("Błąd generowania rekomendacji AI");
       } finally {
         aiLegacyLoading.value = false;

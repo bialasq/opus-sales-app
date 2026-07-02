@@ -21,7 +21,6 @@ import type {
   ProductAnalysisResponse,
   SendReminderResponse,
   TestDataInfoResponse,
-  UploadResponse,
   VisitPlanResponse,
   RoutePlanResponse,
 } from "@shared/api-types";

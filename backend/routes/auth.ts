@@ -77,7 +77,7 @@ router.post("/login", async (req: Request, res: Response) => {
     const { accessToken, refreshToken } = await login(email, password);
     setRefreshCookie(res, refreshToken);
     res.json({ accessToken });
-  } catch (err) {
+  } catch {
     // Świadomie ogólny komunikat — nie zdradzamy, czy to e-mail czy hasło.
     log.warn("Nieudane logowanie", { ip: req.ip });
     res.status(401).json({ error: "Nieprawidłowy e-mail lub hasło" });

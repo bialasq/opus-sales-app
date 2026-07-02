@@ -412,7 +412,7 @@ export default {
           filename: store.state.currentFile || undefined,
         });
         categoryAnalysis.value = response.data.insights;
-      } catch (error) {
+      } catch {
         ElMessage.error("Nie udało się pobrać analizy AI kategorii.");
       } finally {
         aiCategoryLoading.value = false;
