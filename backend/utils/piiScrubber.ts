@@ -16,6 +16,28 @@ export function scrubPii(text: string): string {
     .replace(CREDIT_CARD_REGEX, "[CARD]");
 }
 
+/**
+ * Scrubuje PII z obiektu, przechodząc go REKURENCYJNIE i czyszcząc wyłącznie
+ * wartości typu string. Wcześniej funkcja scrubowała cały zserializowany JSON,
+ * przez co regexy cyfrowe (telefon/NIP/PESEL) trafiały w liczby i JSON syntax
+ * (np. "cost_usd":0.03 → "cost_usd":[PHONE]) i JSON.parse się wywalał.
+ * Teraz liczby, klucze i struktura pozostają nienaruszone.
+ */
 export function scrubObject<T>(obj: T): T {
-  return JSON.parse(scrubPii(JSON.stringify(obj))) as T;
+  return scrubValue(obj) as T;
+}
+
+function scrubValue(value: unknown): unknown {
+  if (typeof value === "string") return scrubPii(value);
+  if (Array.isArray(value)) return value.map(scrubValue);
+  if (value instanceof Date) return value.toISOString();
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = scrubValue(v);
+    }
+    return out;
+  }
+  // number, boolean, null, undefined — bez zmian
+  return value;
 }

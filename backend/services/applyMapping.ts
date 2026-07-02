@@ -9,10 +9,7 @@ import type { RawExcelWorkbook } from "./excelRowValidation";
 
 type RawRow = Record<string, unknown>;
 
-function cellString(value: unknown): string {
-  if (value == null) return "";
-  return String(value);
-}
+import { parseExcelDate } from "../utils/excelCells";
 
 function cellValue(row: RawRow, columnName: string | null | undefined): unknown {
   if (!columnName) return undefined;
@@ -44,34 +41,6 @@ function optionalNip(
 ): string | null {
   const value = optionalString(row, columnName);
   return value === "" ? null : value;
-}
-
-/** Jak excelService.parseDate — do walidacji/formatowania dat w mapowaniu. */
-function parseExcelDate(dateString: unknown): Date {
-  if (!dateString) return new Date();
-
-  if (typeof dateString === "number") {
-    return new Date((dateString - 25569) * 86400 * 1000);
-  }
-
-  const formats = [
-    /(\d{2})\.(\d{2})\.(\d{4})/,
-    /(\d{2})\/(\d{2})\/(\d{4})/,
-    /(\d{4})-(\d{2})-(\d{2})/,
-  ];
-
-  for (const format of formats) {
-    const match = dateString.toString().match(format);
-    if (match) {
-      if (format === formats[2]) {
-        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-      }
-      return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-    }
-  }
-
-  const parsed = Date.parse(cellString(dateString));
-  return Number.isNaN(parsed) ? new Date() : new Date(parsed);
 }
 
 function formatDateCell(value: unknown): string {

@@ -108,7 +108,7 @@
 </template>
 
 <script>
-import { ref, onMounted, onBeforeUnmount, computed, nextTick } from "vue";
+import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import * as echarts from "echarts";
 import { ElMessage } from "element-plus";
@@ -341,6 +341,19 @@ export default {
         loadDashboardData();
       }
     });
+
+    // Zmiana aktywnego pliku → nie pokazuj danych z poprzedniego pliku.
+    watch(
+      () => store.currentFile,
+      () => {
+        aiInsights.value = null;
+        if (store.currentFile) {
+          loadDashboardData();
+        } else {
+          kpiData.value = {};
+        }
+      }
+    );
 
     onBeforeUnmount(() => {
       disposeCharts();

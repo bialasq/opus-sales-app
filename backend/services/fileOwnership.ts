@@ -1,11 +1,16 @@
 import type { Request } from "express";
 import type { UploadedFile } from "@prisma/client";
 import { prisma } from "./prisma";
+import { AppError } from "../errors";
 
-/** Rzucane, gdy plik nie należy do organizacji żądającego (lub nie istnieje). */
-export class FileNotOwnedError extends Error {
+/**
+ * Rzucane, gdy plik nie należy do organizacji żądającego (lub nie istnieje).
+ * AppError(404) — centralny errorHandler mapuje je na 404 "Plik nie istnieje",
+ * więc trasy nie muszą go łapać ręcznie.
+ */
+export class FileNotOwnedError extends AppError {
   constructor(public readonly filename: string) {
-    super(`Plik nie istnieje lub brak dostępu: ${filename}`);
+    super(404, "Plik nie istnieje", `Brak dostępu do pliku: ${filename}`);
     this.name = "FileNotOwnedError";
   }
 }

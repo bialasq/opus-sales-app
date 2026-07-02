@@ -42,9 +42,7 @@ const SYSTEM_PROMPT = `Jesteś analitykiem danych. Dostajesz strukturę pliku sp
 Zwróć WYŁĄCZNIE JSON wg schematu: { "sheetRoles": {<arkusz>: <rola>}, "columns": {<arkusz>: {<poleDomenowe>: <nazwaKolumny|null>}} }.
 Pole bez odpowiednika w pliku = null.`;
 
-function stripCodeFences(raw: string): string {
-  return raw.replace(/```json\n?|\n?```/gi, "").trim();
-}
+import { stripJsonFences as stripCodeFences } from "../utils/llmJson";
 
 function trimCell(value: unknown): unknown {
   if (value == null) return value;

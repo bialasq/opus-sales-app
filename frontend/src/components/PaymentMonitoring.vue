@@ -193,7 +193,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import api from "@/services/api";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -423,6 +423,15 @@ Dział Księgowości`,
     onMounted(() => {
       loadOverduePayments();
     });
+
+    // Zmiana aktywnego pliku → przeładuj zaległości dla nowego pliku.
+    watch(
+      () => store.currentFile,
+      () => {
+        overduePayments.value = [];
+        loadOverduePayments();
+      }
+    );
 
     return {
       overduePayments,

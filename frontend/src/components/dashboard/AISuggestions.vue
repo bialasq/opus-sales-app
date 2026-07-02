@@ -232,7 +232,7 @@
 </template>
 
 <script>
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onBeforeUnmount } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import {
@@ -260,6 +260,13 @@ export default {
     const meta = ref({ provider: "", productCount: 0, emptyDataset: false });
 
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Gdy komponent zniknie w trakcie pollingu (nawigacja), przerywamy pętlę —
+    // inaczej dalej odpytywalibyśmy backend i ustawiali stan odmontowanego widoku.
+    const cancelled = ref(false);
+    onBeforeUnmount(() => {
+      cancelled.value = true;
+    });
 
     const applyInsightsData = (data) => {
       suggestions.value = data.suggestions || [];
@@ -356,8 +363,9 @@ export default {
         );
         sessionId.value = sid;
         let finished = false;
-        for (let i = 0; i < 150 && !finished; i++) {
+        for (let i = 0; i < 150 && !finished && !cancelled.value; i++) {
           await sleep(800);
+          if (cancelled.value) return;
           const job = await pollAiInsightsJob(sid);
           agentStep.value = job.current_step || agentStep.value;
           if (job.status === "done" && job.result) {
@@ -367,6 +375,7 @@ export default {
             throw new Error(job.error || "Błąd agenta AI");
           }
         }
+        if (cancelled.value) return;
         if (!finished) {
           throw new Error("Przekroczono czas oczekiwania na agenta (timeout)");
         }

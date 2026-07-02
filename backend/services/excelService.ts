@@ -23,12 +23,8 @@ import { computeFingerprint } from "./fileStructureFingerprint";
 import { mapWorkbookStructure } from "./excelAgentMapper";
 import { getMapping, saveMapping } from "./mappingCache";
 import { ValidationError } from "../errors";
+import { parseExcelDate } from "../utils/excelCells";
 const log = createLogger("excelService");
-
-function cellString(value: unknown): string {
-  if (value == null) return "";
-  return String(value);
-}
 
 function parseRawWorkbookBuffer(buffer: Buffer): RawExcelWorkbook {
   const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -119,45 +115,7 @@ class ExcelService {
   }
 
   parseDate(dateString: unknown): Date {
-    if (!dateString) return new Date();
-
-    // Obsługa różnych formatów dat
-    if (typeof dateString === "number") {
-      // Excel serial date
-      return new Date((dateString - 25569) * 86400 * 1000);
-    }
-
-    // Próbuj różne formaty
-    const formats = [
-      /(\d{2})\.(\d{2})\.(\d{4})/, // dd.mm.yyyy
-      /(\d{2})\/(\d{2})\/(\d{4})/, // dd/mm/yyyy
-      /(\d{4})-(\d{2})-(\d{2})/, // yyyy-mm-dd
-    ];
-
-    for (const format of formats) {
-      const match = dateString.toString().match(format);
-      if (match) {
-        if (format === formats[2]) {
-          // yyyy-mm-dd
-          return new Date(
-            Number(match[1]),
-            Number(match[2]) - 1,
-            Number(match[3])
-          );
-        } else {
-          // dd.mm.yyyy lub dd/mm/yyyy
-          return new Date(
-            Number(match[3]),
-            Number(match[2]) - 1,
-            Number(match[1])
-          );
-        }
-      }
-    }
-
-    // Jeśli nic nie pasuje, spróbuj Date.parse
-    const parsed = Date.parse(cellString(dateString));
-    return isNaN(parsed) ? new Date() : new Date(parsed);
+    return parseExcelDate(dateString);
   }
 
   analyzeVisits(visitData: VisitRow[]): VisitAnalysis {

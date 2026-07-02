@@ -11,6 +11,10 @@ import {
   toolsToOpenAIFormat,
 } from "./aiAgentTools";
 import { createLogger } from "./appLogger";
+import {
+  PROMPT_INJECTION_SYSTEM_GUARD,
+  wrapUserInstructions,
+} from "../utils/promptInjection";
 import { GUARDRAIL_MESSAGES, MAX_ITERATIONS, shouldStopForToolBudget } from "./agentGuardrails";
 import {
   chooseProvider,
@@ -50,9 +54,7 @@ type ParsedRoutePayload = {
   guardrail_warnings?: string[];
 };
 
-function stripJsonFences(raw: string): string {
-  return raw.replace(/```json\n?|\n?```/g, "").trim();
-}
+import { stripJsonFences } from "../utils/llmJson";
 
 function normalizeCity(c: string): string {
   return c
@@ -247,10 +249,14 @@ export async function planSalesRoute(
     organizationId
   );
 
+  // Wytyczne użytkownika są NIEZAUFANE — opakowujemy je w <user_instructions>
+  // i dodajemy guard (spójnie z agent_v2), zamiast wklejać surowy tekst do systemu.
   const system =
     ROUTE_PLANNER_SYSTEM_PROMPT +
+    "\n\n" +
+    PROMPT_INJECTION_SYSTEM_GUARD +
     (userInstructions?.trim()
-      ? `\n\nDirect User Constraint:\n${userInstructions.trim()}`
+      ? `\n\n${wrapUserInstructions(userInstructions)}`
       : "");
 
   const userHint = ROUTE_PLANNER_USER_HINT(
