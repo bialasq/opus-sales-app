@@ -239,9 +239,24 @@ export function createApp(): Application {
     message: { error: "Too many uploads, please try again later" },
   });
 
+  // Ochrona przed brute-force na hasła: liczymy tylko NIEUDANE próby
+  // (skipSuccessfulRequests), więc normalni użytkownicy nie wpadają w limit.
+  // Celowo nie obejmuje /refresh — wywoływany przy każdym wejściu na stronę.
+  const authLimiter = makeLimiter({
+    prefix: "auth",
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    skipSuccessfulRequests: true,
+    message: {
+      error: "Zbyt wiele nieudanych prób logowania — spróbuj za 15 minut",
+    },
+  });
+
   app.use("/api/", generalApiLimiter);
   app.use("/api/ai/", aiLimiter);
   app.use("/api/upload", uploadLimiter);
+  app.use("/api/auth/login", authLimiter);
+  app.use("/api/auth/register", authLimiter);
 
   const healthPayload = () => ({
     status: "ok",

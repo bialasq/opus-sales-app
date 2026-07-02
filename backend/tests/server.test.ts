@@ -160,6 +160,17 @@ describe("HTTP integration (createApp)", () => {
   });
 
   describe("Rate limiting", () => {
+    it("returns 429 after repeated failed logins (brute-force guard)", async () => {
+      const attempts = Array.from({ length: 12 }, () =>
+        request(app)
+          .post("/api/auth/login")
+          .send({ email: "brute@force.test", password: "wrong-password" })
+      );
+      const responses = await Promise.all(attempts);
+      const rateLimited = responses.filter((r) => r.status === 429);
+      expect(rateLimited.length).toBeGreaterThan(0);
+    });
+
     it("returns 429 after exceeding limit on /api/ai/*", async () => {
       const requests = Array.from({ length: 25 }, () =>
         request(app)
