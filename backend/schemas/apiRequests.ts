@@ -43,13 +43,35 @@ export const promotionsBodySchema = z
   })
   .passthrough();
 
+/**
+ * Wynik analizy przekazywany do generatora raportów i eksperckiego AI.
+ * Struktura jest bogata i ewoluuje, więc znane pola są opcjonalne + passthrough —
+ * ale wymuszamy, że to OBIEKT (odrzuca prymitywy, null, tablice), zamiast z.unknown().
+ */
+export const analysisDataSchema = z
+  .object({
+    summary: z.record(z.string(), z.unknown()).optional(),
+    salesAnalysis: z.unknown().optional(),
+    visitAnalysis: z.unknown().optional(),
+    paymentAnalysis: z.unknown().optional(),
+    metrics: z.unknown().optional(),
+    aiRecommendations: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
+/** Dowolny obiekt lub tablica JSON — granica dla luźnych payloadów (nie prymityw). */
+const jsonObjectOrArray = z.union([
+  z.record(z.string(), z.unknown()),
+  z.array(z.unknown()),
+]);
+
 export const generateReportBodySchema = z.object({
-  analysisData: z.unknown(),
+  analysisData: analysisDataSchema,
   format: z.enum(["pdf", "html"]).optional().default("pdf"),
 });
 
 export const comprehensiveExpertAiBodySchema = z.object({
-  analysisData: z.unknown(),
+  analysisData: analysisDataSchema,
 });
 
 export type ComprehensiveExpertAiBody = z.infer<
@@ -57,8 +79,8 @@ export type ComprehensiveExpertAiBody = z.infer<
 >;
 
 export const routeOptimizationBodySchema = z.object({
-  visitData: z.unknown(),
-  priorities: z.unknown(),
+  visitData: jsonObjectOrArray,
+  priorities: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const aiAgentTypeSchema = z.enum([
@@ -70,7 +92,7 @@ export const aiAgentTypeSchema = z.enum([
 ]);
 
 export const aiInsightsBodySchema = z.object({
-  data: z.unknown(),
+  data: jsonObjectOrArray,
   agentType: aiAgentTypeSchema,
   /** Opcjonalnie: plik w uploads/ — agent używa function calling zamiast pełnego JSON */
   filename: uploadFilenameSchema.optional(),
