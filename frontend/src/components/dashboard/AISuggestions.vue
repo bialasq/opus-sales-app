@@ -1,21 +1,21 @@
 <template>
   <section
-    class="dashboard-card relative overflow-hidden border-indigo-100/80 bg-gradient-to-br from-white via-indigo-50/30 to-violet-50/40"
+    class="dashboard-card relative overflow-hidden border-amber-100/80 bg-gradient-to-br from-white via-amber-50/40 to-orange-50/40"
     aria-label="Inteligentna analiza AI"
   >
     <div
-      class="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-indigo-400/10 blur-2xl"
+      class="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-amber-400/10 blur-2xl"
     />
 
-    <div class="dashboard-card-header relative border-indigo-100/60">
+    <div class="dashboard-card-header relative border-amber-100/60">
       <div class="flex min-w-0 flex-1 items-start gap-4">
         <div class="relative shrink-0">
           <span
-            class="absolute inset-0 scale-110 rounded-2xl bg-indigo-400/25 robot-pulse"
+            class="absolute inset-0 scale-110 rounded-2xl bg-amber-400/25 robot-pulse"
             aria-hidden="true"
           />
           <div
-            class="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-lg sm:h-14 sm:w-14"
+            class="relative flex h-12 w-12 items-center justify-center rounded-2xl brand-gradient text-white shadow-lg sm:h-14 sm:w-14"
           >
             <el-icon class="text-2xl sm:text-[26px]"><Cpu /></el-icon>
           </div>
@@ -26,7 +26,7 @@
           </h2>
           <p class="mt-0.5 text-xs leading-relaxed text-slate-600 sm:text-sm">
             Promocje vs domówienia na podstawie
-            <span class="font-medium text-indigo-700">rotationRate</span>
+            <span class="font-medium text-orange-700">rotationRate</span>
             produktów z danych sprzedaży.
           </p>
           <p
@@ -52,7 +52,7 @@
         <el-button
           type="primary"
           plain
-          class="!rounded-xl !border-indigo-200 !font-medium"
+          class="!rounded-xl !border-amber-200 !font-medium"
           :loading="loading"
           :disabled="!filename"
           @click="loadInsights"
@@ -94,9 +94,9 @@
     </div>
 
     <div v-else-if="loading" class="relative space-y-4 px-1 py-4">
-      <div class="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
-        <div class="flex items-center gap-2 text-sm font-medium text-indigo-900">
-          <el-icon class="is-loading text-xl text-indigo-500"><Loading /></el-icon>
+      <div class="rounded-xl border border-amber-100 bg-amber-50/60 px-4 py-3">
+        <div class="flex items-center gap-2 text-sm font-medium text-orange-900">
+          <el-icon class="is-loading text-xl text-amber-500"><Loading /></el-icon>
           <span>{{ agentStep || "Uruchamianie agenta…" }}</span>
         </div>
       </div>
@@ -135,7 +135,7 @@
       <li
         v-for="(item, index) in suggestions"
         :key="index"
-        class="group flex gap-3 rounded-xl border border-slate-200/90 bg-white/90 p-4 shadow-sm transition-all hover:border-indigo-200/80 hover:shadow-md sm:gap-4 sm:p-5"
+        class="group flex gap-3 rounded-xl border border-slate-200/90 bg-white/90 p-4 shadow-sm transition-all hover:border-amber-200/80 hover:shadow-md sm:gap-4 sm:p-5"
         :class="priorityBorderClass(item.priority)"
       >
         <span
