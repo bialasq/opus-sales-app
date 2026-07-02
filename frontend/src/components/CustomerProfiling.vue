@@ -9,7 +9,7 @@
             type="primary"
             native-type="button"
             :loading="visitPlanLoading"
-            :disabled="!store.state.currentFile || customerProfiles.length === 0"
+            :disabled="!store.currentFile || customerProfiles.length === 0"
             @click="generateVisitPlan"
           >
             Generuj Plan Wizyt
@@ -114,14 +114,14 @@
 
 <script>
 import { ref, onMounted, watch } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import api, { postVisitPlan } from "@/services/api";
 import { ElMessage } from "element-plus";
 
 export default {
   name: "CustomerProfiling",
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const customerProfiles = ref([]);
     const visitPlan = ref([]);
     const visitPlanLoading = ref(false);
@@ -130,7 +130,7 @@ export default {
     const customerInsights = ref(null);
 
     const loadCustomerProfiles = async () => {
-      const filename = store.state.currentFile;
+      const filename = store.currentFile;
       if (!filename) {
         customerProfiles.value = [];
         visitPlan.value = [];
@@ -158,7 +158,7 @@ export default {
     };
 
     const generateVisitPlan = async () => {
-      if (!store.state.currentFile) {
+      if (!store.currentFile) {
         ElMessage.warning("Najpierw wgraj plik Excel (lub wybierz dane testowe).");
         return;
       }
@@ -258,7 +258,7 @@ export default {
         const response = await api.post("/analytics/ai-insights", {
           data: selectedCustomer.value,
           agentType: "customerInsights",
-          filename: store.state.currentFile || undefined,
+          filename: store.currentFile || undefined,
         });
         customerInsights.value = response.data?.insights ?? "";
       } catch {
@@ -271,7 +271,7 @@ export default {
     });
 
     watch(
-      () => store.state.currentFile,
+      () => store.currentFile,
       () => {
         visitPlan.value = [];
         loadCustomerProfiles();

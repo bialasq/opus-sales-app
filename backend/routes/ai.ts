@@ -33,6 +33,7 @@ import {
 
 } from "../services/aiService";
 import { planSalesRoute } from "../services/routePlannerService";
+import { prisma } from "../services/prisma";
 import { InvalidFilenameError } from "../utils/filePathResolver";
 import { readWorkbookFromUpload } from "../utils/uploadReader";
 import { VISITS_UNAVAILABLE } from "../services/workbookSections";
@@ -141,6 +142,37 @@ router.post(
     }
   }
 );
+
+/** Historia jobów AI organizacji — zasila widok "Historia AI" w UI. */
+router.get("/insights/jobs", requireOrg, async (req: Request, res: Response) => {
+  try {
+    const rows = await prisma.analysisJob.findMany({
+      where: { organizationId: req.auth!.organizationId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        sessionId: true,
+        status: true,
+        currentStep: true,
+        errorMessage: true,
+        createdAt: true,
+        updatedAt: true,
+        file: { select: { originalName: true, storageKey: true } },
+        createdBy: { select: { name: true, email: true } },
+      },
+    });
+    res.json({
+      jobs: rows.map((r) => ({
+        ...r,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    log.error("GET /api/ai/insights/jobs", error);
+    res.status(500).json({ error: "Nie udało się pobrać historii jobów" });
+  }
+});
 
 router.get(
   "/insights/job/:sessionId",

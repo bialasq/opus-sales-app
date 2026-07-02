@@ -118,14 +118,16 @@
 <script setup>
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { useStore } from "vuex";
 import { ElMessage } from "element-plus";
 import axios from "axios";
-import { fetchMe, login, register } from "@/services/auth";
+import { login, register } from "@/services/auth";
+import { useAuthStore } from "@/stores/auth";
+import { useWorkspaceStore } from "@/stores/workspace";
 
 const route = useRoute();
 const router = useRouter();
-const store = useStore();
+const authStore = useAuthStore();
+const workspaceStore = useWorkspaceStore();
 
 const activeTab = ref("login");
 const loginLoading = ref(false);
@@ -184,9 +186,10 @@ function resolveRedirect() {
   return "/";
 }
 
-async function setUserAfterAuth(email) {
-  const me = await fetchMe();
-  store.commit("setUser", { ...me, email });
+async function setUserAfterAuth() {
+  // /auth/me zwraca już email i nazwę organizacji — store trzyma pełny profil.
+  await authStore.loadMe();
+  await workspaceStore.restoreWorkspace().catch(() => {});
 }
 
 async function handleLogin() {
@@ -198,7 +201,7 @@ async function handleLogin() {
   loginLoading.value = true;
   try {
     await login(loginForm.value.email, loginForm.value.password);
-    await setUserAfterAuth(loginForm.value.email.trim());
+    await setUserAfterAuth();
     router.push(resolveRedirect());
   } catch {
     ElMessage.error("Nieprawidłowy e-mail lub hasło");
@@ -233,7 +236,7 @@ async function handleRegister() {
       userName?.trim() || undefined
     );
     await login(email.trim(), password);
-    await setUserAfterAuth(email.trim());
+    await setUserAfterAuth();
     router.push("/");
   } catch (err) {
     ElMessage.error(registerErrorMessage(err));

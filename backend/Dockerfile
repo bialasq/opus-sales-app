@@ -2,6 +2,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# openssl wymagany przez Prisma (generate/migracje) na Alpine (musl).
+RUN apk add --no-cache openssl libc6-compat
+
 COPY package.json package-lock.json* ./
 COPY tsconfig.json tsconfig.build.json ./
 
@@ -16,7 +19,8 @@ RUN npm prune --omit=dev
 FROM node:20-alpine AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache wget \
+# openssl wymagany przez silnik migracji Prisma (entrypoint robi `migrate deploy`).
+RUN apk add --no-cache wget openssl libc6-compat \
   && addgroup -S app \
   && adduser -S app -G app
 

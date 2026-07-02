@@ -159,7 +159,42 @@ describe("HTTP integration (createApp)", () => {
     });
   });
 
+  describe("Files & jobs endpoints (auth guards)", () => {
+    it("GET /api/files without auth → 401", async () => {
+      const res = await request(app).get("/api/files");
+      expect(res.status).toBe(401);
+    });
+
+    it("GET /api/files with legacy x-api-key (no org) → 403", async () => {
+      const res = await request(app).get("/api/files").set(authHeaders());
+      expect(res.status).toBe(403);
+    });
+
+    it("GET /api/ai/insights/jobs with legacy x-api-key (no org) → 403", async () => {
+      const res = await request(app)
+        .get("/api/ai/insights/jobs")
+        .set(authHeaders());
+      expect(res.status).toBe(403);
+    });
+
+    it("DELETE /api/files/:id without auth → 401", async () => {
+      const res = await request(app).delete("/api/files/some-id");
+      expect(res.status).toBe(401);
+    });
+  });
+
   describe("Rate limiting", () => {
+    it("returns 429 after repeated failed logins (brute-force guard)", async () => {
+      const attempts = Array.from({ length: 12 }, () =>
+        request(app)
+          .post("/api/auth/login")
+          .send({ email: "brute@force.test", password: "wrong-password" })
+      );
+      const responses = await Promise.all(attempts);
+      const rateLimited = responses.filter((r) => r.status === 429);
+      expect(rateLimited.length).toBeGreaterThan(0);
+    });
+
     it("returns 429 after exceeding limit on /api/ai/*", async () => {
       const requests = Array.from({ length: 25 }, () =>
         request(app)

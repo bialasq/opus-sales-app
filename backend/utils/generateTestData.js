@@ -1,7 +1,6 @@
 // backend/utils/generateTestData.js
 // Dane testowe: woj. warmińsko-mazurskie (baza handlowa Olsztyn) — zgodne z backend/shared/cityCoords.ts
 const XLSX = require("xlsx");
-const fs = require("fs");
 const path = require("path");
 
 const WOJEWODZTWO = "Warmińsko-mazurskie";

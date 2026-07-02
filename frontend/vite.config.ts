@@ -13,6 +13,24 @@ export default defineConfig({
       "@shared": path.resolve(__dirname, "../backend/shared"),
     },
   },
+  build: {
+    // Rozbijamy ciężkie vendory na osobne chunki (cache przeglądarki + szybszy
+    // first paint). Bez tego build to jeden ~2,5 MB plik i warning Rollupa.
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("echarts")) return "vendor-echarts";
+          if (id.includes("element-plus") || id.includes("@element-plus"))
+            return "vendor-element-plus";
+          if (id.includes("chart.js") || id.includes("vue-chartjs"))
+            return "vendor-chartjs";
+          if (id.includes("@sentry")) return "vendor-sentry";
+          return "vendor";
+        },
+      },
+    },
+  },
   server: {
     host: "0.0.0.0",
     port: Number(process.env.FRONTEND_PORT) || 8080,

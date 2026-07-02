@@ -23,7 +23,6 @@ import {
 import { createLogger } from "./appLogger";
 import {
   MAX_ITERATIONS,
-  SESSION_TOKEN_LIMIT,
   buildPartialSuggestions,
   GUARDRAIL_MESSAGES,
   isMaxIterationsReached,
@@ -238,23 +237,6 @@ function getStrategistModel(provider: "openai" | "anthropic"): string {
 
 function stripJsonFences(raw: string): string {
   return raw.replace(/```json\n?|\n?```/g, "").trim();
-}
-
-function parseSuggestions(raw: string): AISuggestion[] {
-  const cleaned = stripJsonFences(raw);
-  const parsed = JSON.parse(cleaned) as {
-    suggestions?: Partial<AISuggestion>[];
-  };
-  const list = parsed.suggestions;
-  if (!Array.isArray(list)) return [];
-  return list
-    .filter(
-      (s): s is AISuggestion =>
-        typeof s?.title === "string" &&
-        typeof s?.description === "string" &&
-        (s.priority === "high" || s.priority === "medium" || s.priority === "low")
-    )
-    .slice(0, 12);
 }
 
 function parseAnalystFacts(raw: string): AnalystFacts | null {

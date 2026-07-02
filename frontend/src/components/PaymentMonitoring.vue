@@ -194,14 +194,14 @@
 
 <script>
 import { ref, computed, onMounted } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import api from "@/services/api";
 import { ElMessage, ElMessageBox } from "element-plus";
 
 export default {
   name: "PaymentMonitoring",
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const overduePayments = ref([]);
     const detailsDialogVisible = ref(false);
     const previewDialogVisible = ref(false);
@@ -245,7 +245,7 @@ Dział Księgowości`,
     const loadOverduePayments = async () => {
       try {
         const response = await api.post("/payments/overdue", {
-          filename: store.state.currentFile,
+          filename: store.currentFile,
         });
         const body = response.data;
         if (body?.available === false) {

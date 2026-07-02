@@ -1,6 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ["./index.html", "./src/**/*.{vue,js,ts}"],
+  // Klasa `dark` na <html> — spójna z dark/css-vars Element Plus (stores/ui.ts).
+  darkMode: "class",
   corePlugins: {
     preflight: false,
   },

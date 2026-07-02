@@ -147,6 +147,7 @@ export default {
       default: null,
     },
   },
+  emits: ["refresh-analysis"],
   setup(props, { emit }) {
     const loading = ref(false);
     const actionDialogVisible = ref(false);
@@ -202,7 +203,7 @@ export default {
         // Emit event do rodzica aby odświeżył analizę
         emit("refresh-analysis");
         ElMessage.success("Rekomendacje zostaną odświeżone");
-      } catch (error) {
+      } catch {
         ElMessage.error("Błąd odświeżania rekomendacji");
       } finally {
         loading.value = false;
@@ -220,7 +221,7 @@ export default {
         }
 
         ElMessage.success("Rekomendacje wyeksportowane");
-      } catch (error) {
+      } catch {
         ElMessage.error("Błąd eksportu rekomendacji");
       }
     };

@@ -43,16 +43,23 @@
     <template v-if="expert">
       <el-divider />
       <el-tabs>
+        <!-- v-html jest tu bezpieczne: formatBlock() najpierw escapuje HTML
+             (escapeHtml: < > "), a dopiero potem owija linie w <p>. Treść z LLM
+             nie może więc wstrzyknąć znaczników. -->
         <el-tab-pane label="Sprzedaż" name="sales">
+          <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="prose" v-html="formatBlock(expert.sales)" />
         </el-tab-pane>
         <el-tab-pane label="Finanse" name="finance">
+          <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="prose" v-html="formatBlock(expert.finance)" />
         </el-tab-pane>
         <el-tab-pane label="Marketing" name="marketing">
+          <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="prose" v-html="formatBlock(expert.marketing)" />
         </el-tab-pane>
         <el-tab-pane label="Zarząd" name="exec">
+          <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="prose" v-html="formatBlock(expert.executiveSummary)" />
         </el-tab-pane>
         <el-tab-pane label="Priorytety" name="actions">
@@ -82,7 +89,7 @@
 
 <script>
 import { ref, computed, onMounted, watch } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import api, {
   getLlmStatus,
@@ -101,7 +108,7 @@ export default {
     },
   },
   setup(props) {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const loading = ref(false);
     const expert = ref(null);
     const reactTrace = ref([]);
@@ -112,7 +119,7 @@ export default {
     const agentStep = ref("");
     const serverLlm = ref(null);
 
-    const currentFile = computed(() => store.state.currentFile || "");
+    const currentFile = computed(() => store.currentFile || "");
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const hasAgenticTrace = computed(
       () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0

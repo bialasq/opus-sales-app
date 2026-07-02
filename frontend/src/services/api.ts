@@ -11,17 +11,18 @@ import {
 } from "./auth";
 import type {
   AgentInsightsJobStatus,
+  AiJobsResponse,
   AiPerformanceStats,
   AiInsightsLegacyResponse,
   AiInsightsResponse,
   AnalyticsSummary,
   SuggestionFeedbackBody,
   CustomerProfilesResponse,
+  OrgFilesResponse,
   PaymentOverdueRecord,
   ProductAnalysisResponse,
   SendReminderResponse,
   TestDataInfoResponse,
-  UploadResponse,
   VisitPlanResponse,
   RoutePlanResponse,
 } from "@shared/api-types";
@@ -281,6 +282,37 @@ export type LlmStatusResponse = {
 
 export async function getLlmStatus(): Promise<LlmStatusResponse> {
   const { data } = await client.get<LlmStatusResponse>("/admin/llm-status");
+  return data;
+}
+
+// --- Pliki organizacji / historia jobów / admin ---
+
+export async function getOrgFiles(): Promise<OrgFilesResponse> {
+  const { data } = await client.get<OrgFilesResponse>("/files");
+  return data;
+}
+
+export async function deleteOrgFile(id: string): Promise<{ ok: boolean }> {
+  const { data } = await client.delete<{ ok: boolean }>(
+    `/files/${encodeURIComponent(id)}`
+  );
+  return data;
+}
+
+export async function getAiJobs(): Promise<AiJobsResponse> {
+  const { data } = await client.get<AiJobsResponse>("/ai/insights/jobs");
+  return data;
+}
+
+export type BudgetStatusResponse = {
+  maxUsdPerDay: number;
+  currentSpendUsd: number;
+  remainingUsd: number;
+  dateKey: string;
+};
+
+export async function getAdminBudget(): Promise<BudgetStatusResponse> {
+  const { data } = await client.get<BudgetStatusResponse>("/admin/budget");
   return data;
 }
 

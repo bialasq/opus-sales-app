@@ -17,6 +17,7 @@
             <el-upload
               :action="uploadActionUrl()"
               :headers="uploadHeaders"
+              :before-upload="beforeUpload"
               :show-file-list="false"
               :on-success="handleUploadSuccess"
               :on-error="handleUploadError"
@@ -47,6 +48,8 @@
         >
           <el-upload
             :action="uploadActionUrl()"
+            :headers="uploadHeaders"
+            :before-upload="beforeUpload"
             :show-file-list="false"
             :on-success="handleUploadSuccess"
             :on-error="handleUploadError"
@@ -73,6 +76,7 @@
           <el-upload
             :action="uploadActionUrl()"
             :headers="uploadHeaders"
+            :before-upload="beforeUpload"
             :show-file-list="false"
             :on-success="handleUploadSuccess"
             :on-error="handleUploadError"
@@ -260,7 +264,7 @@
 
 <script>
 import { ref, computed, onMounted, watch } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import api, {
   getAuthHeaders,
@@ -268,6 +272,7 @@ import api, {
   testDataDownloadUrl,
   planSalesRoute,
 } from "@/services/api";
+import { ensureFreshToken } from "@/services/auth";
 import RouteMap from "./RouteMap.vue";
 import VisitAnalysisPanel from "./panels/VisitAnalysisPanel.vue";
 import SalesAnalysisPanel from "./panels/SalesAnalysisPanel.vue";
@@ -288,7 +293,7 @@ export default {
     RouteMap,
   },
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const loading = ref(false);
     const analysisData = ref(null);
     const activeTab = ref("visits");
@@ -300,6 +305,16 @@ export default {
     const routePlanning = ref(false);
 
     const uploadHeaders = computed(() => getAuthHeaders());
+
+    // Upload omija interceptor axios — odśwież token z cookie przed wysłaniem.
+    const beforeUpload = async () => {
+      const ok = await ensureFreshToken();
+      if (!ok) {
+        ElMessage.error("Sesja wygasła — zaloguj się ponownie i spróbuj wgrać plik.");
+        return false;
+      }
+      return true;
+    };
 
     function isSectionAvailable(section) {
       if (!section || typeof section !== "object") return false;
@@ -319,11 +334,11 @@ export default {
       return fallback;
     }
 
-    const hasFile = computed(() => !!store.state.currentFile);
-    const currentFileName = computed(() => store.state.currentFile || "");
+    const hasFile = computed(() => !!store.currentFile);
+    const currentFileName = computed(() => store.currentFile || "");
 
     const handleUploadSuccess = (response) => {
-      store.commit("setCurrentFile", response.filename);
+      store.setCurrentFile(response.filename);
       ElMessage.success("Plik został wgrany pomyślnie!");
       // Resetuj poprzednią analizę
       analysisData.value = null;
@@ -352,6 +367,11 @@ export default {
     const loadTestData = async () => {
       loadingTestData.value = true;
       try {
+        // Pobranie i upload pliku testowego idą przez fetch (poza interceptorem) — odśwież token.
+        if (!(await ensureFreshToken())) {
+          ElMessage.error("Sesja wygasła — zaloguj się ponownie.");
+          return;
+        }
         const checkResponse = await api.get("/analytics/test-data-info");
 
         if (!checkResponse.data.testFileExists) {
@@ -411,7 +431,7 @@ export default {
         }
 
         if (result.filename) {
-          store.commit("setCurrentFile", result.filename);
+          store.setCurrentFile(result.filename);
           ElMessage.success("Dane testowe wgrane pomyślnie!");
         } else {
           ElMessage.error(
@@ -434,7 +454,7 @@ export default {
     };
 
     const runAnalysis = async () => {
-      if (!store.state.currentFile) {
+      if (!store.currentFile) {
         ElMessage.warning("Najpierw wgraj plik Excel");
         return;
       }
@@ -442,7 +462,7 @@ export default {
       loading.value = true;
       try {
         const response = await api.post("/analytics/comprehensive-analysis", {
-          filename: store.state.currentFile,
+          filename: store.currentFile,
         });
 
         analysisData.value = response.data;
@@ -518,7 +538,7 @@ export default {
       }
     });
     watch(
-      () => store.state.currentFile,
+      () => store.currentFile,
       (newFile, oldFile) => {
         if (newFile && newFile !== oldFile) {
           analysisData.value = null;
@@ -553,6 +573,7 @@ export default {
       sectionReason,
       uploadActionUrl,
       uploadHeaders,
+      beforeUpload,
       testDataDownloadUrl,
     };
   },

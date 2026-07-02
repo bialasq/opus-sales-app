@@ -1,3 +1,4 @@
+import { ref } from "vue";
 import api from "./api";
 import axios from "axios";
 
@@ -60,34 +61,67 @@ const bareClient = axios.create({
   withCredentials: true,
 });
 
-export type AuthMe = {
-  userId: string;
-  organizationId: string;
-  role: string;
-};
+import type { AuthMeResponse } from "@shared/api-types";
+
+/** Kontekst zalogowanego użytkownika — pełny typ w @shared/api-types. */
+export type AuthMe = AuthMeResponse;
 
 export type RegisterResult = {
   userId: string;
   organizationId: string;
 };
 
-// Access token żyje tylko w pamięci modułu (zerowany przy przeładowaniu strony).
-let accessToken: string | null = null;
+// Access token żyje tylko w pamięci (zerowany przy przeładowaniu strony).
+// REAKTYWNY ref — dzięki temu computed-y (np. nagłówki el-upload) odświeżają się,
+// gdy token się zmieni (login/refresh). Zwykła zmienna modułowa nie była śledzona przez Vue.
+const accessTokenRef = ref<string | null>(null);
+
+// Nietajny znacznik "była tu sesja" — sam refresh token siedzi w httpOnly cookie
+// (niedostępny dla JS). Dzięki flagze initSession() nie strzela /auth/refresh
+// u użytkowników, którzy nigdy się nie logowali (401-szum w logach przy każdym wejściu).
+const SESSION_HINT_KEY = "opus_session_hint";
+
+function setSessionHint(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(SESSION_HINT_KEY, "1");
+    else localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    /* localStorage niedostępny (np. tryb prywatny) — trudno, hint jest opcjonalny */
+  }
+}
+
+function hasSessionHint(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT_KEY) === "1";
+  } catch {
+    return true; // brak localStorage → zachowanie jak dotychczas (spróbuj refresh)
+  }
+}
 
 export function getAccessToken(): string | null {
-  return accessToken;
+  return accessTokenRef.value;
 }
 
 function setAccessToken(token: string): void {
-  accessToken = token;
+  accessTokenRef.value = token;
 }
 
 export function clearTokens(): void {
-  accessToken = null;
+  accessTokenRef.value = null;
 }
 
 export function isLoggedIn(): boolean {
-  return !!accessToken;
+  return !!accessTokenRef.value;
+}
+
+/**
+ * Gwarantuje świeży access token przed operacją, która OMIJA interceptor axios
+ * (np. natywny upload el-upload/fetch — nie potrafi sam odświeżyć po 401).
+ * Odświeża z httpOnly refresh-cookie. Zwraca true, jeśli mamy ważny token.
+ */
+export async function ensureFreshToken(): Promise<boolean> {
+  const refreshed = await tryRefreshAccessToken();
+  return refreshed || !!getAccessToken();
 }
 
 export async function register(
@@ -112,6 +146,7 @@ export async function login(email: string, password: string): Promise<void> {
     { email, password }
   );
   setAccessToken(data.accessToken);
+  setSessionHint(true);
 }
 
 export async function logout(): Promise<void> {
@@ -122,6 +157,7 @@ export async function logout(): Promise<void> {
     /* best-effort */
   }
   clearTokens();
+  setSessionHint(false);
 }
 
 export async function fetchMe(): Promise<AuthMe> {
@@ -143,9 +179,11 @@ export async function tryRefreshAccessToken(): Promise<boolean> {
       {}
     );
     setAccessToken(data.accessToken);
+    setSessionHint(true);
     return true;
   } catch {
     clearTokens();
+    setSessionHint(false);
     return false;
   }
 }
@@ -153,7 +191,9 @@ export async function tryRefreshAccessToken(): Promise<boolean> {
 /**
  * Przy starcie aplikacji próbuje odtworzyć sesję z refresh-cookie.
  * Zwraca true, jeśli użytkownik jest zalogowany (cookie ważne).
+ * Pomija wywołanie sieciowe, gdy nie ma śladu wcześniejszej sesji.
  */
 export async function initSession(): Promise<boolean> {
+  if (!hasSessionHint()) return false;
   return tryRefreshAccessToken();
 }

@@ -2,7 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache libc6-compat
+# openssl wymagany przez silnik migracji Prisma na Alpine (musl); libc6-compat dla zgodności bin.
+RUN apk add --no-cache libc6-compat openssl
 
 COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi

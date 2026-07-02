@@ -33,6 +33,7 @@ import paymentsRoutes from "./routes/payments";
 import aiRoutes from "./routes/ai";
 import adminRoutes from "./routes/admin";
 import authRoutes from "./routes/auth";
+import filesRoutes from "./routes/files";
 import { requireOrg, sessionAuth } from "./middleware/session";
 import { constantTimeEqual } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
@@ -239,9 +240,24 @@ export function createApp(): Application {
     message: { error: "Too many uploads, please try again later" },
   });
 
+  // Ochrona przed brute-force na hasła: liczymy tylko NIEUDANE próby
+  // (skipSuccessfulRequests), więc normalni użytkownicy nie wpadają w limit.
+  // Celowo nie obejmuje /refresh — wywoływany przy każdym wejściu na stronę.
+  const authLimiter = makeLimiter({
+    prefix: "auth",
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    skipSuccessfulRequests: true,
+    message: {
+      error: "Zbyt wiele nieudanych prób logowania — spróbuj za 15 minut",
+    },
+  });
+
   app.use("/api/", generalApiLimiter);
   app.use("/api/ai/", aiLimiter);
   app.use("/api/upload", uploadLimiter);
+  app.use("/api/auth/login", authLimiter);
+  app.use("/api/auth/register", authLimiter);
 
   const healthPayload = () => ({
     status: "ok",
@@ -386,6 +402,7 @@ export function createApp(): Application {
   app.use("/api/payments", paymentsRoutes);
   app.use("/api/ai", aiRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/files", filesRoutes);
 
   const PORT: number = Number(process.env.PORT) || 3000;
 
