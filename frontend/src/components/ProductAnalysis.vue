@@ -184,7 +184,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import * as echarts from "echarts";
 import api from "@/services/api";
@@ -422,6 +422,14 @@ export default {
     onMounted(() => {
       loadProductAnalysis();
     });
+
+    // Zmiana aktywnego pliku → przeładuj analizę dla nowego pliku.
+    watch(
+      () => store.currentFile,
+      () => {
+        loadProductAnalysis();
+      }
+    );
 
     onBeforeUnmount(() => {
       disposeCharts();

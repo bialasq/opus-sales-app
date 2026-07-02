@@ -88,7 +88,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount, watch } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import api, {
@@ -121,6 +121,12 @@ export default {
 
     const currentFile = computed(() => store.currentFile || "");
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    // Przerwij polling, jeśli komponent zniknie w trakcie (nawigacja/zamknięcie).
+    const cancelled = ref(false);
+    onBeforeUnmount(() => {
+      cancelled.value = true;
+    });
     const hasAgenticTrace = computed(
       () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0
     );
@@ -233,8 +239,9 @@ export default {
       try {
         const { sessionId } = await runAiInsightsJob(currentFile.value);
         let finished = false;
-        for (let i = 0; i < 120 && !finished; i++) {
+        for (let i = 0; i < 120 && !finished && !cancelled.value; i++) {
           await sleep(800);
+          if (cancelled.value) return;
           const job = await pollAiInsightsJob(sessionId);
           agentStep.value = job.current_step || agentStep.value;
           if (job.status === "done" && job.result) {
@@ -246,6 +253,7 @@ export default {
             throw new Error(job.error || "Błąd agenta");
           }
         }
+        if (cancelled.value) return;
         if (!finished) throw new Error("Timeout agenta AI");
         traceDialogOpen.value = true;
       } catch (e) {

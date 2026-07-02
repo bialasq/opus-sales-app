@@ -1,5 +1,15 @@
 <template>
   <div class="anomaly-detection">
+    <el-alert
+      title="Dane demonstracyjne"
+      type="info"
+      :closable="false"
+      show-icon
+      class="mb-4"
+    >
+      Ta sekcja pokazuje przykładowe anomalie w celach poglądowych. Wykrywanie
+      anomalii z wgranego pliku nie jest jeszcze podłączone do prawdziwego źródła.
+    </el-alert>
     <el-row :gutter="20">
       <el-col :span="24">
         <el-card>
@@ -175,7 +185,6 @@ export default {
       email: "",
       frequency: "immediate",
     });
-    let intervalId = null;
     let anomalyStatsChartInstance = null;
 
     const loadAnomalies = () => {
@@ -306,17 +315,11 @@ export default {
     onMounted(() => {
       loadAnomalies();
       renderAnomalyStats();
-
-      // Automatyczne odświeżanie co 30 sekund
-      intervalId = setInterval(() => {
-        loadAnomalies();
-      }, 30000);
+      // Brak auto-refreshu: to dane demonstracyjne (nie ma jeszcze realnego źródła
+      // anomalii), więc odświeżanie co 30 s tylko udawałoby monitoring na żywo.
     });
 
     onUnmounted(() => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
       anomalyStatsChartInstance?.dispose();
       anomalyStatsChartInstance = null;
     });
