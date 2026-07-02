@@ -11,33 +11,13 @@ import {
 import type { PaymentOverdueRecord, SendReminderResponse } from "../types/api";
 import { ValidationError } from "../errors";
 import { excelService } from "../services/excelService";
+import emailService from "../services/emailService";
 import { PAYMENTS_UNAVAILABLE } from "../services/workbookSections";
 import { createLogger } from "../services/appLogger";
 
 const log = createLogger("routes/payments");
 
 const router = express.Router();
-
-const mockPayments: PaymentOverdueRecord[] = [
-  {
-    invoiceNumber: "FV/2024/001",
-    customerId: "001",
-    customerName: "Firma ABC Sp. z o.o.",
-    amount: 15000,
-    dueDate: "2024-02-15",
-    status: "overdue",
-    daysOverdue: 25,
-  },
-  {
-    invoiceNumber: "FV/2024/002",
-    customerId: "002",
-    customerName: "Sklep XYZ",
-    amount: 8500,
-    dueDate: "2024-03-20",
-    status: "pending",
-    daysOverdue: 0,
-  },
-];
 
 function mapOverdueFromWorkbook(
   filename: string,
@@ -76,17 +56,18 @@ router.post(
       const { filename } = req.body as { filename?: string };
       const organizationId = req.auth!.organizationId;
 
-      if (filename?.trim()) {
-        const result = await mapOverdueFromWorkbook(
-          filename.trim(),
-          organizationId
-        );
-        res.json(result);
+      if (!filename?.trim()) {
+        // Bez pliku nie ma z czego liczyć zaległości — zwracamy jawny brak danych,
+        // zamiast podstawiać fikcyjne faktury.
+        res.json({
+          available: false,
+          reason: "Wybierz plik z fakturami, aby zobaczyć zaległości płatnicze.",
+        });
         return;
       }
 
-      const overduePayments = mockPayments.filter((p) => p.status === "overdue");
-      res.json({ available: true, data: overduePayments });
+      const result = await mapOverdueFromWorkbook(filename.trim(), organizationId);
+      res.json(result);
     } catch (error) {
       if (error instanceof ValidationError) {
         res.status(error.statusCode).json({ error: error.publicMessage });
@@ -110,16 +91,35 @@ router.post(
 
 router.post(
   "/send-reminder",
+  requireOrg,
   validateBody(sendReminderBodySchema),
   async (req: Request, res: Response) => {
     try {
-      const { invoiceNumber, customerId } = req.body as {
+      const smtpConfigured = Boolean(process.env.SMTP_HOST?.trim());
+      if (!smtpConfigured) {
+        // Nie udajemy wysyłki — brak integracji SMTP jest jawnie zgłaszany.
+        res.status(501).json({
+          success: false,
+          error:
+            "Wysyłka przypomnień nie jest skonfigurowana (brak SMTP_HOST). Skonfiguruj SMTP w backend/.env.",
+        });
+        return;
+      }
+
+      const { invoiceNumber, customerId, customerEmail, amount } = req.body as {
         invoiceNumber?: string;
         customerId?: string;
+        customerEmail?: string;
+        amount?: number;
       };
+      const result = await emailService.sendPaymentReminder({
+        customerEmail,
+        invoiceNumber,
+        amount,
+      });
       const body: SendReminderResponse = {
-        success: true,
-        message: `Przypomnienie wysłane dla faktury ${invoiceNumber ?? ""} (klient: ${
+        success: result.success,
+        message: `${result.message} (faktura ${invoiceNumber ?? ""}, klient ${
           customerId ?? ""
         })`,
       };
