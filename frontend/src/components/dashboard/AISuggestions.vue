@@ -233,7 +233,7 @@
 
 <script>
 import { ref, computed, watch } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import {
   pollAiInsightsJob,
@@ -246,7 +246,7 @@ export default {
   name: "AISuggestions",
   components: { AgenticTraceDialog },
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const loading = ref(false);
     const error = ref("");
     const suggestions = ref([]);
@@ -278,7 +278,7 @@ export default {
       () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0
     );
 
-    const filename = computed(() => store.state.currentFile || "");
+    const filename = computed(() => store.currentFile || "");
 
     const showEmptyDataState = computed(
       () =>

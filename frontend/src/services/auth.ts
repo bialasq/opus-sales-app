@@ -61,11 +61,10 @@ const bareClient = axios.create({
   withCredentials: true,
 });
 
-export type AuthMe = {
-  userId: string;
-  organizationId: string;
-  role: string;
-};
+import type { AuthMeResponse } from "@shared/api-types";
+
+/** Kontekst zalogowanego użytkownika — pełny typ w @shared/api-types. */
+export type AuthMe = AuthMeResponse;
 
 export type RegisterResult = {
   userId: string;

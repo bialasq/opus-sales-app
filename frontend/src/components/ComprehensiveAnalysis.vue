@@ -264,7 +264,7 @@
 
 <script>
 import { ref, computed, onMounted, watch } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import api, {
   getAuthHeaders,
@@ -293,7 +293,7 @@ export default {
     RouteMap,
   },
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const loading = ref(false);
     const analysisData = ref(null);
     const activeTab = ref("visits");
@@ -334,11 +334,11 @@ export default {
       return fallback;
     }
 
-    const hasFile = computed(() => !!store.state.currentFile);
-    const currentFileName = computed(() => store.state.currentFile || "");
+    const hasFile = computed(() => !!store.currentFile);
+    const currentFileName = computed(() => store.currentFile || "");
 
     const handleUploadSuccess = (response) => {
-      store.commit("setCurrentFile", response.filename);
+      store.setCurrentFile(response.filename);
       ElMessage.success("Plik został wgrany pomyślnie!");
       // Resetuj poprzednią analizę
       analysisData.value = null;
@@ -431,7 +431,7 @@ export default {
         }
 
         if (result.filename) {
-          store.commit("setCurrentFile", result.filename);
+          store.setCurrentFile(result.filename);
           ElMessage.success("Dane testowe wgrane pomyślnie!");
         } else {
           ElMessage.error(
@@ -454,7 +454,7 @@ export default {
     };
 
     const runAnalysis = async () => {
-      if (!store.state.currentFile) {
+      if (!store.currentFile) {
         ElMessage.warning("Najpierw wgraj plik Excel");
         return;
       }
@@ -462,7 +462,7 @@ export default {
       loading.value = true;
       try {
         const response = await api.post("/analytics/comprehensive-analysis", {
-          filename: store.state.currentFile,
+          filename: store.currentFile,
         });
 
         analysisData.value = response.data;
@@ -538,7 +538,7 @@ export default {
       }
     });
     watch(
-      () => store.state.currentFile,
+      () => store.currentFile,
       (newFile, oldFile) => {
         if (newFile && newFile !== oldFile) {
           analysisData.value = null;

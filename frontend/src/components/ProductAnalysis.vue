@@ -185,7 +185,7 @@
 
 <script>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import * as echarts from "echarts";
 import api from "@/services/api";
 import { ElMessage } from "element-plus";
@@ -193,7 +193,7 @@ import { ElMessage } from "element-plus";
 export default {
   name: "ProductAnalysis",
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const rotationChart = ref(null);
     const seasonalChart = ref(null);
     const dateRange = ref([]);
@@ -266,7 +266,7 @@ export default {
     };
 
     const loadProductAnalysis = async () => {
-      const filename = store.state.currentFile;
+      const filename = store.currentFile;
       if (!filename) return;
 
       analysisLoading.value = true;
@@ -409,7 +409,7 @@ export default {
         const response = await api.post("/analytics/ai-insights", {
           data: { type: "categories" },
           agentType: "productAnalyzer",
-          filename: store.state.currentFile || undefined,
+          filename: store.currentFile || undefined,
         });
         categoryAnalysis.value = response.data.insights;
       } catch {

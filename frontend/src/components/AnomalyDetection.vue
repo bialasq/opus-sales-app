@@ -158,14 +158,12 @@
 
 <script>
 import { ref, onMounted, onUnmounted } from "vue";
-import { useStore } from "vuex";
 import * as echarts from "echarts";
 import { ElMessage } from "element-plus";
 
 export default {
   name: "AnomalyDetection",
   setup() {
-    const store = useStore();
     const anomalies = ref([]);
     const anomalyStatsChart = ref(null);
     const actionDialogVisible = ref(false);
@@ -207,7 +205,6 @@ export default {
       ];
 
       anomalies.value = newAnomalies;
-      store.commit("addAnomaly", newAnomalies[0]);
     };
 
     const formatTime = (timestamp) => {

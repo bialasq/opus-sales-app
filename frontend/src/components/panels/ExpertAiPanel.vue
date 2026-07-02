@@ -89,7 +89,7 @@
 
 <script>
 import { ref, computed, onMounted, watch } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import { ElMessage } from "element-plus";
 import api, {
   getLlmStatus,
@@ -108,7 +108,7 @@ export default {
     },
   },
   setup(props) {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const loading = ref(false);
     const expert = ref(null);
     const reactTrace = ref([]);
@@ -119,7 +119,7 @@ export default {
     const agentStep = ref("");
     const serverLlm = ref(null);
 
-    const currentFile = computed(() => store.state.currentFile || "");
+    const currentFile = computed(() => store.currentFile || "");
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const hasAgenticTrace = computed(
       () => reactTrace.value?.length > 0 || analystFacts.value?.anomalies?.length > 0

@@ -109,7 +109,7 @@
 
 <script>
 import { ref, onMounted, onBeforeUnmount, computed, nextTick } from "vue";
-import { useStore } from "vuex";
+import { useWorkspaceStore } from "@/stores/workspace";
 import * as echarts from "echarts";
 import { ElMessage } from "element-plus";
 import api from "@/services/api";
@@ -121,7 +121,7 @@ export default {
   name: "Dashboard",
   components: { StatCard, AISuggestions, AiPerformancePanel },
   setup() {
-    const store = useStore();
+    const store = useWorkspaceStore();
     const topProductsChart = ref(null);
     const salesTrendChart = ref(null);
     const kpiData = ref({});
@@ -178,7 +178,7 @@ export default {
     ]);
 
     const loadDashboardData = async () => {
-      const filename = store.state.currentFile;
+      const filename = store.currentFile;
       if (!filename) {
         ElMessage.warning("Najpierw wgraj plik Excel");
         return;
@@ -317,7 +317,7 @@ export default {
         const response = await api.post("/analytics/ai-insights", {
           data: kpiData.value,
           agentType: "salesOptimizer",
-          filename: store.state.currentFile || undefined,
+          filename: store.currentFile || undefined,
         });
 
         aiInsights.value = [
@@ -337,7 +337,7 @@ export default {
     };
 
     onMounted(() => {
-      if (store.state.currentFile) {
+      if (store.currentFile) {
         loadDashboardData();
       }
     });
