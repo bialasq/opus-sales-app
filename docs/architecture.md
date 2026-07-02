@@ -7,16 +7,23 @@ flowchart TB
   Browser[Browser]
   FE[nginx / Vue frontend]
   BE[Express API]
+  PG[(PostgreSQL)]
   Redis[(Redis)]
   Store[(S3 or local uploads)]
   LLM[OpenAI / Anthropic]
 
   Browser --> FE
-  FE -->|/api + x-api-key| BE
+  FE -->|/api + Bearer JWT<br/>refresh: httpOnly cookie| BE
+  BE --> PG
   BE --> Redis
   BE --> Store
   BE --> LLM
 ```
+
+Auth: users log in per organization (JWT, 15-min access token in memory; 30-day refresh
+token as an httpOnly cookie, hashed in PostgreSQL, rotated on use). All tenant data is
+scoped by `organizationId`. Legacy `x-api-key` exists only behind
+`LEGACY_API_KEY_ENABLED` (default off) — see [SECURITY.md](../SECURITY.md).
 
 ## Multi-agent insights flow
 
