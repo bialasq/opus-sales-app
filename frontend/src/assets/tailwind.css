@@ -3,11 +3,15 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* Jeden stack dla całej aplikacji — nadpisuje też font Element Plus. */
+    --el-font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
   html {
     @apply scroll-smooth;
   }
   body {
-    @apply m-0 bg-slate-50 text-slate-900 antialiased;
+    @apply m-0 bg-slate-50 font-sans text-slate-900 antialiased;
   }
 }
 
