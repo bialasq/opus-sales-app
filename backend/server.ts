@@ -255,6 +255,11 @@ export function createApp(): Application {
 
   app.use("/api/", generalApiLimiter);
   app.use("/api/ai/", aiLimiter);
+  // Drogie trasy LLM w /api/analytics (poza modułem /api/ai) — ten sam ostry limit.
+  app.use("/api/analytics/comprehensive-expert-ai", aiLimiter);
+  app.use("/api/analytics/generate-report", aiLimiter);
+  app.use("/api/analytics/route-optimization", aiLimiter);
+  app.use("/api/analytics/ai-insights", aiLimiter);
   app.use("/api/upload", uploadLimiter);
   app.use("/api/auth/login", authLimiter);
   app.use("/api/auth/register", authLimiter);
