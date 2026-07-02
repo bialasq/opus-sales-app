@@ -130,7 +130,12 @@ function parseExpertJson(
   provider: string,
   model: string
 ): ComprehensiveExpertAiResponse | null {
-  const cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
+  const fenced = raw.replace(/```json\n?|\n?```/g, "").trim();
+  // Gdy model doda prozę dookoła JSON-a, wytnij od pierwszego { do ostatniego }.
+  const first = fenced.indexOf("{");
+  const last = fenced.lastIndexOf("}");
+  const cleaned =
+    first !== -1 && last > first ? fenced.slice(first, last + 1) : fenced;
   try {
     const p = JSON.parse(cleaned) as Record<string, unknown>;
     if (
@@ -187,6 +192,10 @@ export async function runComprehensiveExpertAi(
       system: SYSTEM,
       user: `Dane analizy (JSON):\n${payload}`,
       temperature: 0.2,
+      // Expert AI zwraca 4 obszerne pola + listę akcji — 4096 tokenów potrafi uciąć
+      // JSON (stąd "empty or invalid JSON"). Dajemy większy budżet wyjścia.
+      maxTokensOpenAi: 8192,
+      maxTokensAnthropic: 8192,
       timeoutMs: expertTimeoutMs,
     });
     const parsed = parseExpertJson(result.raw, result.provider, result.model);

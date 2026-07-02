@@ -1,3 +1,4 @@
+import { ref } from "vue";
 import api from "./api";
 import axios from "axios";
 
@@ -71,23 +72,35 @@ export type RegisterResult = {
   organizationId: string;
 };
 
-// Access token żyje tylko w pamięci modułu (zerowany przy przeładowaniu strony).
-let accessToken: string | null = null;
+// Access token żyje tylko w pamięci (zerowany przy przeładowaniu strony).
+// REAKTYWNY ref — dzięki temu computed-y (np. nagłówki el-upload) odświeżają się,
+// gdy token się zmieni (login/refresh). Zwykła zmienna modułowa nie była śledzona przez Vue.
+const accessTokenRef = ref<string | null>(null);
 
 export function getAccessToken(): string | null {
-  return accessToken;
+  return accessTokenRef.value;
 }
 
 function setAccessToken(token: string): void {
-  accessToken = token;
+  accessTokenRef.value = token;
 }
 
 export function clearTokens(): void {
-  accessToken = null;
+  accessTokenRef.value = null;
 }
 
 export function isLoggedIn(): boolean {
-  return !!accessToken;
+  return !!accessTokenRef.value;
+}
+
+/**
+ * Gwarantuje świeży access token przed operacją, która OMIJA interceptor axios
+ * (np. natywny upload el-upload/fetch — nie potrafi sam odświeżyć po 401).
+ * Odświeża z httpOnly refresh-cookie. Zwraca true, jeśli mamy ważny token.
+ */
+export async function ensureFreshToken(): Promise<boolean> {
+  const refreshed = await tryRefreshAccessToken();
+  return refreshed || !!getAccessToken();
 }
 
 export async function register(

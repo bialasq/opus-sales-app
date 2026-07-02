@@ -8,6 +8,7 @@
           class="upload-compact"
           :action="uploadAction"
           :headers="uploadHeaders"
+          :before-upload="beforeUpload"
           :on-success="handleUploadSuccess"
           :on-error="handleUploadError"
           :show-file-list="false"
@@ -49,6 +50,7 @@ import { mapGetters } from "vuex";
 import DashboardShell from "@/components/layout/DashboardShell.vue";
 import ErrorBoundary from "@/components/ErrorBoundary.vue";
 import { getAuthHeaders, uploadActionUrl } from "@/services/api";
+import { ensureFreshToken } from "@/services/auth";
 
 export default {
   name: "App",
@@ -85,6 +87,16 @@ export default {
     },
   },
   methods: {
+    // Upload omija interceptor axios — zapewniamy świeży token z cookie przed wysłaniem.
+    async beforeUpload() {
+      const ok = await ensureFreshToken();
+      if (!ok) {
+        ElMessage.error("Sesja wygasła — zaloguj się ponownie i spróbuj wgrać plik.");
+        this.$router.push({ name: "Auth" });
+        return false;
+      }
+      return true;
+    },
     handleUploadSuccess(response) {
       const data =
         typeof response === "string"

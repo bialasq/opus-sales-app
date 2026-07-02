@@ -17,6 +17,7 @@
             <el-upload
               :action="uploadActionUrl()"
               :headers="uploadHeaders"
+              :before-upload="beforeUpload"
               :show-file-list="false"
               :on-success="handleUploadSuccess"
               :on-error="handleUploadError"
@@ -47,6 +48,8 @@
         >
           <el-upload
             :action="uploadActionUrl()"
+            :headers="uploadHeaders"
+            :before-upload="beforeUpload"
             :show-file-list="false"
             :on-success="handleUploadSuccess"
             :on-error="handleUploadError"
@@ -73,6 +76,7 @@
           <el-upload
             :action="uploadActionUrl()"
             :headers="uploadHeaders"
+            :before-upload="beforeUpload"
             :show-file-list="false"
             :on-success="handleUploadSuccess"
             :on-error="handleUploadError"
@@ -268,6 +272,7 @@ import api, {
   testDataDownloadUrl,
   planSalesRoute,
 } from "@/services/api";
+import { ensureFreshToken } from "@/services/auth";
 import RouteMap from "./RouteMap.vue";
 import VisitAnalysisPanel from "./panels/VisitAnalysisPanel.vue";
 import SalesAnalysisPanel from "./panels/SalesAnalysisPanel.vue";
@@ -300,6 +305,16 @@ export default {
     const routePlanning = ref(false);
 
     const uploadHeaders = computed(() => getAuthHeaders());
+
+    // Upload omija interceptor axios — odśwież token z cookie przed wysłaniem.
+    const beforeUpload = async () => {
+      const ok = await ensureFreshToken();
+      if (!ok) {
+        ElMessage.error("Sesja wygasła — zaloguj się ponownie i spróbuj wgrać plik.");
+        return false;
+      }
+      return true;
+    };
 
     function isSectionAvailable(section) {
       if (!section || typeof section !== "object") return false;
@@ -352,6 +367,11 @@ export default {
     const loadTestData = async () => {
       loadingTestData.value = true;
       try {
+        // Pobranie i upload pliku testowego idą przez fetch (poza interceptorem) — odśwież token.
+        if (!(await ensureFreshToken())) {
+          ElMessage.error("Sesja wygasła — zaloguj się ponownie.");
+          return;
+        }
         const checkResponse = await api.get("/analytics/test-data-info");
 
         if (!checkResponse.data.testFileExists) {
@@ -553,6 +573,7 @@ export default {
       sectionReason,
       uploadActionUrl,
       uploadHeaders,
+      beforeUpload,
       testDataDownloadUrl,
     };
   },
