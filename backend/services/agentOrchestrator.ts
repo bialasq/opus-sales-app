@@ -235,9 +235,7 @@ function getStrategistModel(provider: "openai" | "anthropic"): string {
   );
 }
 
-function stripJsonFences(raw: string): string {
-  return raw.replace(/```json\n?|\n?```/g, "").trim();
-}
+import { stripJsonFences } from "../utils/llmJson";
 
 function parseAnalystFacts(raw: string): AnalystFacts | null {
   try {

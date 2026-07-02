@@ -178,8 +178,10 @@ function normalizePriority(p: unknown): "high" | "medium" | "low" {
   return "medium";
 }
 
+import { stripJsonFences } from "../utils/llmJson";
+
 function parseLlmRecommendations(raw: string): HybridAiRecommendation[] | null {
-  const cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
+  const cleaned = stripJsonFences(raw);
   try {
     const parsed = JSON.parse(cleaned) as { recommendations?: unknown[] };
     const list = parsed.recommendations;

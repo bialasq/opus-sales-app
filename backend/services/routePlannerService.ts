@@ -50,9 +50,7 @@ type ParsedRoutePayload = {
   guardrail_warnings?: string[];
 };
 
-function stripJsonFences(raw: string): string {
-  return raw.replace(/```json\n?|\n?```/g, "").trim();
-}
+import { stripJsonFences } from "../utils/llmJson";
 
 function normalizeCity(c: string): string {
   return c

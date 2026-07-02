@@ -61,9 +61,7 @@ function safeJsonPayload(data: unknown): string {
   }
 }
 
-function stripCodeFences(raw: string): string {
-  return raw.replace(/```json\n?|\n?```/g, "").trim();
-}
+import { stripJsonFences as stripCodeFences } from "../utils/llmJson";
 
 function parseInsightsField(raw: string): string | null {
   const cleaned = stripCodeFences(raw);
