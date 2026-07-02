@@ -18,11 +18,9 @@
         class="flex h-14 shrink-0 items-center gap-2 border-b border-slate-100 px-4 lg:h-16 dark:border-slate-800"
       >
         <img
-          src="/logo.svg"
+          src="/logo-mark.png"
           alt="Opus Sales"
-          class="h-9 w-9 shrink-0"
-          width="36"
-          height="36"
+          class="h-9 w-auto shrink-0"
         />
         <div class="min-w-0 flex-1">
           <p

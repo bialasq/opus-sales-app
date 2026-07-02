@@ -3,16 +3,11 @@
     <div class="w-full max-w-md">
       <div class="mb-8 text-center">
         <img
-          src="/logo.svg"
+          src="/logo.png"
           alt="Opus Sales"
-          class="mx-auto mb-4 h-20 w-20"
-          width="80"
-          height="80"
+          class="mx-auto mb-3 h-32 w-auto"
         />
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">
-          Opus Sales
-        </h1>
-        <p class="mt-1 text-sm text-slate-500">Analityka sprzedaży</p>
+        <p class="text-sm text-slate-500">Analityka sprzedaży</p>
       </div>
 
       <el-card class="auth-card !rounded-2xl !border-slate-200/80 !shadow-card">
