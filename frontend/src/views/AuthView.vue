@@ -2,11 +2,13 @@
   <div class="auth-page flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
     <div class="w-full max-w-md">
       <div class="mb-8 text-center">
-        <div
-          class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl brand-gradient text-xl font-bold text-white shadow-lg"
-        >
-          O
-        </div>
+        <img
+          src="/logo.svg"
+          alt="Opus Sales"
+          class="mx-auto mb-4 h-20 w-20"
+          width="80"
+          height="80"
+        />
         <h1 class="text-2xl font-semibold tracking-tight text-slate-900">
           Opus Sales
         </h1>

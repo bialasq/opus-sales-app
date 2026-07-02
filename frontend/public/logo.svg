@@ -1,0 +1,21 @@
+<svg viewBox="0 0 104 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Opus Sales">
+  <defs>
+    <linearGradient id="opusRing" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fcd34d" />
+      <stop offset="0.55" stop-color="#fbbf24" />
+      <stop offset="1" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+  <!-- Pierścień otwarty u dołu (jak w znaku) -->
+  <path
+    d="M26.5 75.5 A36 36 0 1 1 77.5 75.5"
+    fill="none"
+    stroke="url(#opusRing)"
+    stroke-width="12"
+    stroke-linecap="round"
+  />
+  <!-- Trzy rosnące słupki: jaśniejszy → ciemniejszy -->
+  <rect x="39" y="58" width="11" height="30" rx="4" fill="#fcd34d" />
+  <rect x="53" y="48" width="11" height="40" rx="4" fill="#fbbf24" />
+  <rect x="67" y="37" width="11" height="51" rx="4" fill="#f97316" />
+</svg>

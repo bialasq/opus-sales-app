@@ -17,11 +17,13 @@
       <div
         class="flex h-14 shrink-0 items-center gap-2 border-b border-slate-100 px-4 lg:h-16 dark:border-slate-800"
       >
-        <div
-          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl brand-gradient text-sm font-bold text-white shadow-md"
-        >
-          O
-        </div>
+        <img
+          src="/logo.svg"
+          alt="Opus Sales"
+          class="h-9 w-9 shrink-0"
+          width="36"
+          height="36"
+        />
         <div class="min-w-0 flex-1">
           <p
             class="truncate text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100"
