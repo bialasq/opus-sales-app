@@ -10,8 +10,9 @@
 
 Please report security issues privately (do not open a public issue with exploit details).
 
-- Email: security@example.com (replace with your contact)
-- Or: GitHub **Private security advisory** on this repository
+- Preferred: open a **GitHub private security advisory** on this repository
+  (Security → Advisories → *Report a vulnerability*).
+- Alternatively, contact the repository owner privately via their GitHub profile.
 
 We aim to acknowledge reports within 5 business days.
 

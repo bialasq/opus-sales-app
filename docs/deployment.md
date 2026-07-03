@@ -135,15 +135,17 @@ git tag v1.0.0 && git push origin v1.0.0
 
 ## Database backups
 
-The bundled Postgres stores data in the `postgres_data` volume. Back it up regularly:
+The bundled Postgres stores data in the `postgres_data` volume. Use the provided script,
+which dumps to `./backups/*.sql.gz`, rejects empty dumps and rotates old files:
 
 ```bash
-# Dump (run via cron on the host)
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U "${POSTGRES_USER:-opus}" "${POSTGRES_DB:-opus}" | gzip > backup-$(date +%F).sql.gz
+./scripts/backup-db.sh                    # RETENTION_DAYS / BACKUP_DIR overridable
 
-# Restore
-gunzip -c backup-YYYY-MM-DD.sql.gz | \
+# Schedule daily at 03:00 (cron on the host):
+0 3 * * * cd /opt/opus-sales-app && ./scripts/backup-db.sh >> /var/log/opus-backup.log 2>&1
+
+# Restore a dump:
+gunzip -c backups/opus-opus-YYYY-MM-DD_HHMMSS.sql.gz | \
   docker compose -f docker-compose.prod.yml exec -T postgres psql -U "${POSTGRES_USER:-opus}" "${POSTGRES_DB:-opus}"
 ```
 

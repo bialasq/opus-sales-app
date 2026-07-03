@@ -74,6 +74,10 @@ services:
       retries: 3
       start_period: 20s
 
+  # OPCJONALNE object storage. Backend używa go TYLKO gdy w backend/.env ustawisz
+  # S3_BUCKET + S3_ENDPOINT (np. http://minio:9000) + S3_ACCESS_KEY_ID/SECRET.
+  # Bez tego backend zapisuje pliki na lokalny wolumen (backend_uploads) i ten
+  # serwis jest zbędny — usuń go lub nie startuj, jeśli nie skalujesz horyzontalnie.
   minio:
     image: minio/minio:latest
     restart: unless-stopped

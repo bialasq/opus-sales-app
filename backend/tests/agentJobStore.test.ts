@@ -3,6 +3,18 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 import { randomUUID } from "crypto";
+
+// Blok "memory fallback" celowo wywołuje createJob z fikcyjnymi ID — zapis do DB
+// pada na FK i store przełącza się na cache (to jest testowana ścieżka). Ten zapis
+// FK logował się jako error i wyglądał w CI jak regresja. Wyciszamy logger tego
+// serwisu, żeby nie zaśmiecał stderr — sama ścieżka fallbacku dalej jest sprawdzana.
+vi.mock("../services/appLogger", () => {
+  const noop = () => {};
+  return {
+    createLogger: () => ({ info: noop, warn: noop, error: noop, debug: noop }),
+    rootLogger: { info: noop, warn: noop, error: noop, debug: noop },
+  };
+});
 import {
   __clearMemoryJobsForTests,
   createJob,
