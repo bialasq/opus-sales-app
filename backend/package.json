@@ -26,10 +26,10 @@
     "gc:logs": "tsx scripts/gcLogs.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1075.0",
-    "@aws-sdk/s3-request-presigner": "^3.1075.0",
+    "@aws-sdk/client-s3": "^3.1082.0",
+    "@aws-sdk/s3-request-presigner": "^3.1082.0",
     "@prisma/client": "^5.22.0",
-    "@sentry/node": "^10.62.0",
+    "@sentry/node": "^10.64.0",
     "axios": "^1.18.1",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
