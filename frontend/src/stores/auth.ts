@@ -34,8 +34,14 @@ export const useAuthStore = defineStore("auth", {
       return me;
     },
 
-    /** Odtworzenie sesji z refresh-cookie przy starcie aplikacji. */
+    /**
+     * Odtworzenie sesji z refresh-cookie przy starcie aplikacji. Idempotentne —
+     * wywoływane przez guard routera przy PIERWSZEJ nawigacji (i pomijane potem),
+     * żeby reload zalogowanej strony nie wyrzucał usera na /login zanim cookie
+     * odtworzy token.
+     */
     async bootstrap(): Promise<boolean> {
+      if (this.ready) return this.isLoggedIn;
       try {
         const restored = await initSession();
         if (restored) {

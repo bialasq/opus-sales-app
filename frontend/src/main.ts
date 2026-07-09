@@ -62,20 +62,8 @@ window.addEventListener("opus:logout", () => {
   router.push({ name: "Auth" });
 });
 
-// Motyw od razu (bez mignięcia), sesja z cookie PRZED montażem — inaczej
-// router przekierowałby zalogowanego użytkownika na ekran logowania.
+// Motyw od razu (bez mignięcia). Odtworzenie sesji z cookie robi guard routera
+// przy pierwszej nawigacji (patrz router/index.ts) — dzięki temu reload zalogowanej
+// strony nie wyrzuca usera na /login zanim refresh zdąży odtworzyć token.
 uiStore.initTheme();
-
-async function bootstrap() {
-  try {
-    const restored = await authStore.bootstrap();
-    if (restored) {
-      await workspaceStore.restoreWorkspace();
-    }
-  } catch {
-    /* brak ważnej sesji — wchodzimy jako niezalogowani */
-  }
-  app.mount("#app");
-}
-
-void bootstrap();
+app.mount("#app");

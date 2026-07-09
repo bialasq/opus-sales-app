@@ -5,6 +5,7 @@ import {
 } from "vue-router";
 import { ElMessage } from "element-plus";
 import { useAuthStore } from "@/stores/auth";
+import { useWorkspaceStore } from "@/stores/workspace";
 import AuthView from "@/views/AuthView.vue";
 
 /**
@@ -85,8 +86,19 @@ const router = createRouter({
   routes,
 });
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
+
+  // Przy PIERWSZEJ nawigacji (np. reload) odtwórz sesję z refresh-cookie ZANIM
+  // zdecydujemy o dostępie — inaczej zalogowany user zostaje wyrzucony na /login,
+  // bo access token (tylko w pamięci) jeszcze nie istnieje. bootstrap jest idempotentny.
+  if (!auth.ready) {
+    const restored = await auth.bootstrap();
+    if (restored) {
+      const workspace = useWorkspaceStore();
+      await workspace.restoreWorkspace().catch(() => {});
+    }
+  }
 
   if (to.meta.title) {
     document.title = `${String(to.meta.title)} · Opus Sales`;
