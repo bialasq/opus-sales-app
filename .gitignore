@@ -35,6 +35,11 @@ Thumbs.db
 # Cache
 frontend/node_modules/.cache/
 
+# Cypress
+frontend/cypress/videos/
+frontend/cypress/screenshots/
+frontend/cypress/downloads/
+
 # Trace logi agentów AI (lokalnie)
 backend/logs/traces/*
 !backend/logs/traces/.gitkeep
