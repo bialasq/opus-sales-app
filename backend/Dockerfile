@@ -1,5 +1,5 @@
 # Production multi-stage build
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 WORKDIR /app
 
 # openssl wymagany przez Prisma (generate/migracje) na Alpine (musl).
@@ -16,7 +16,7 @@ RUN npx prisma generate
 RUN npm run build
 RUN npm prune --omit=dev
 
-FROM node:20-alpine AS runtime
+FROM node:25-alpine AS runtime
 WORKDIR /app
 
 # openssl wymagany przez silnik migracji Prisma (entrypoint robi `migrate deploy`).
