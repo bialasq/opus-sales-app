@@ -40,7 +40,7 @@ jobs:
             type=sha
 
       - name: Build backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -62,7 +62,7 @@ jobs:
             type=sha
 
       - name: Build frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./frontend/Dockerfile
